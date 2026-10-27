@@ -1,0 +1,11 @@
+{
+  "comment": "config.json にコピーして使う。未記載の項目は shared/config.js の DEFAULT_CONFIG が使われる",
+  "enableRealActions": false,
+  "requireReactionEvidence": false,
+  "seedRange": { "followingMax": null, "followerMin": null },
+  "dbPath": "C:\\Users\\taker\\Documents\\Codex\\note-engagement\\data\\state.sqlite3",
+  "betweenLikesMs": 20000,
+  "limits": {
+    "defaults": { "dailyLimit": 200, "hourlyLimit": 50, "capacity": 50, "recoveryIntervalMin": 20, "recoveryAmount": 10 }
+  }
+}
