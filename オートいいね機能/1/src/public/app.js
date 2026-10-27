@@ -11,7 +11,7 @@
   let previewCache = [];
 
   async function api(method, path, body) {
-    const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const res = await fetch(path, { method, headers: { 'content-type': 'application/json', 'x-note-tool': '1' }, body: body ? JSON.stringify(body) : undefined });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json.error || res.statusText);
     return json;
@@ -34,20 +34,22 @@
     const box = $('accounts');
     box.innerHTML = '';
     for (const a of state.accounts) {
-      const l = a.limits;
+      const l = a.pools.like;
       const card = document.createElement('div');
       card.className = `card${a.id === state.selectedAccountId ? ' selected' : ''}`;
-      const blk = l.externalBlock ? `<span class="err">外部制限: ${esc(l.externalBlock.message)} <button data-clear="${a.id}">解除を確認した</button></span>` : '<span class="ok">外部制限なし</span>';
+      const BK = { external_limit: '外部制限', auth: '認証切れ・認証要求', permission_unknown: '権限不明（403）' };
+      const blk = a.block ? `<span class="err">${esc(BK[a.block.kind] || a.block.kind)}: ${esc(a.block.message)}（内部回復では解除されない） <button data-clear="${a.id}">解除を確認した</button></span>` : '<span class="ok">外部制限・認証切れなし</span>';
       card.innerHTML = `<h3><span>${esc(a.name)} <span class="muted">${esc(a.url)}</span></span><button data-select="${a.id}" ${a.id === state.selectedAccountId ? 'disabled' : ''}>選択</button></h3>
         <dl class="kv">
           <dt>接続</dt><dd>port ${a.cdpPort} <button data-verify="${a.id}">ログインID照合</button> <span id="sess-${a.id}" class="muted"></span></dd>
           <dt>担当</dt><dd>${a.assigned} 人（候補 ${a.targets.candidate} / 成功 ${a.targets.succeeded} / 見送り ${a.targets.skipped} / 結果不明 ${a.targets.unknown} / 送信前失敗 ${a.targets.failed_before_send} / 外部制限 ${a.targets.blocked}）</dd>
           <dt>送信</dt><dd>試行 ${a.attempts.attempted} / 成功 ${a.attempts.succeeded} / 結果不明 ${a.attempts.unknown} / 失敗 ${a.attempts.failed}（ドライラン ${a.attempts.dry_run}）</dd>
           <dt>成果</dt><dd>スキ返し ${a.outcomes.sukiReturn} / フォロー増加 ${a.outcomes.followGained}（確認できた相手との一致のみ。全体の増加を効果と断定しない）</dd>
-          <dt>内部残数</dt><dd>${l.internalRemaining ?? '未設定'} / ${l.capacity ?? '-'}（${l.recoveryIntervalMin ?? '-'}分ごとに ${l.recoveryAmount ?? '-'} 回復、次回 ${fmt(l.nextRecoveryAt)}）</dd>
-          <dt>日次/時間</dt><dd>本日 ${l.usedToday} / ${l.dailyLimit ?? '未設定'}（JST ${l.dayKey || ''}）、直近1時間 ${l.usedLastHour} / ${l.hourlyLimit ?? '未設定'}</dd>
+          <dt>like 枠</dt><dd>内部残数 ${l.credits ?? '未設定'} / 容量 ${l.capacity ?? '未設定'}（${l.recoveryIntervalMin ?? '-'}分ごとに +${l.recoveryAmount ?? '-'}、次回回復 ${fmt(l.nextRefillAt)}）<br>
+            日次残 ${l.dailyAvailable ?? '-'} / ${l.dailyLimit ?? '未設定'}（本日 ${l.usedToday}、JST ${l.dayKey || ''}）、時間残 ${l.hourlyAvailable ?? '-'} / ${l.hourlyLimit ?? '未設定'}（直近1時間 ${l.usedLastHour}）、引当 ${l.holds}<br>
+            <b>有効残数 ${l.effective ?? '-'}</b>${l.valid ? '' : ` <span class="err">${esc(l.validity.message)}</span>`}</dd>
           <dt>制限</dt><dd>${blk}</dd>
-          <dt>上限設定</dt><dd><button data-limits="${a.id}">変更</button> <span class="muted">${esc(l.note || '')}</span></dd>
+          <dt>上限設定</dt><dd><button data-limits="${a.id}">変更</button> <span class="muted">${esc(Object.entries(l.labels || {}).map(([k, v]) => `${k}: ${v}`).join('; '))}</span></dd>
         </dl>`;
       box.appendChild(card);
     }
@@ -55,12 +57,13 @@
     box.querySelectorAll('[data-verify]').forEach((b) => { b.onclick = async () => { const r = await api('POST', '/api/session/verify', { accountId: b.dataset.verify }); const el = $(`sess-${b.dataset.verify}`); el.textContent = `${r.ok ? '一致' : '不一致/未取得'}: ${r.message}`; el.className = r.ok ? 'ok' : 'err'; }; });
     box.querySelectorAll('[data-clear]').forEach((b) => { b.onclick = async () => { if (confirm('外部制限が解除されたことを確認しましたか？')) { await api('POST', `/api/limits/${b.dataset.clear}/clear-block`); refresh(); } }; });
     box.querySelectorAll('[data-limits]').forEach((b) => { b.onclick = async () => {
-      const a = state.accounts.find((x) => x.id === b.dataset.limits); const l = a.limits;
-      const daily = prompt('日次上限（教材の200件/日は参考値。公式の保証値ではない）', l.dailyLimit ?? ''); if (daily === null) return;
-      const hourly = prompt('時間上限（教材の50件/時は参考値）', l.hourlyLimit ?? ''); if (hourly === null) return;
-      const cap = prompt('内部残数の上限', l.capacity ?? ''); if (cap === null) return;
-      const amt = prompt('回復量（20分ごと）', l.recoveryAmount ?? ''); if (amt === null) return;
-      await api('POST', `/api/limits/${a.id}`, { dailyLimit: Number(daily), hourlyLimit: Number(hourly), capacity: Number(cap), recoveryAmount: Number(amt), recoveryIntervalMin: l.recoveryIntervalMin ?? 20 });
+      const a = state.accounts.find((x) => x.id === b.dataset.limits); const l = a.pools.like;
+      const daily = prompt('like 日次上限（教材の200件/日は参考値。公式の保証値ではなく「200件まで安全」ではない）', l.dailyLimit ?? ''); if (daily === null) return;
+      const hourly = prompt('like 直近1時間上限（教材の50件/時は参考値）', l.hourlyLimit ?? ''); if (hourly === null) return;
+      const cap = prompt('内部 credits の容量上限', l.capacity ?? ''); if (cap === null) return;
+      const interval = prompt('回復間隔（分。既定20。アプリ内の規則で note 公式の制限ではない）', l.recoveryIntervalMin ?? 20); if (interval === null) return;
+      const amt = prompt('回復量（区間ごと。既定1）', l.recoveryAmount ?? 1); if (amt === null) return;
+      await api('POST', `/api/limits/${a.id}/like`, { dailyLimit: daily, hourlyLimit: hourly, capacity: cap, recoveryIntervalMin: interval, recoveryAmount: amt });
       refresh();
     }; });
   }
@@ -107,7 +110,7 @@
   function renderCriteria() {
     $('criteria').innerHTML = state.criteria.map((c) => `<li><b>${esc(c.id)}</b> ${esc(c.text)}<br><span class="src">出典: ${esc(c.source)}${c.extra ? '（追加仕様）' : ''}${c.configKey ? ` ／ 設定キー ${esc(c.configKey)}` : ''}</span></li>`).join('');
     const cv = state.configValues;
-    $('cfg-values').innerHTML = `活動条件 ${cv.activityWindowDays.value} 日（${esc(cv.activityWindowDays.kind)}。${esc(cv.activityWindowDays.note)}）／ 固定記事切替の提案しきい値 ${cv.pinSuggestionLikeThreshold.value}（${esc(cv.pinSuggestionLikeThreshold.kind)}）／ 一人につきスキ1件（${esc(cv.oneLikePerPersonProjectWide.kind)}）／ 上限の区分: ${esc(Object.entries(cv.limitsLabels).map(([k, v]) => `${k}=${v}`).join('、'))}`;
+    $('cfg-values').innerHTML = `活動条件 ${cv.activityWindowDays.value} 日（${esc(cv.activityWindowDays.kind)}。${esc(cv.activityWindowDays.note)}）／ 固定記事切替の提案しきい値 ${cv.pinSuggestionLikeThreshold.value}（${esc(cv.pinSuggestionLikeThreshold.kind)}）／ 一人につきスキ1件（${esc(cv.oneLikePerPersonProjectWide.kind)}）／ like 枠の初期値: ${esc(Object.entries(cv.limitsPools.like).map(([k, v]) => `${k}=${v ?? '未設定'}`).join('、'))}（区分: ${esc(Object.entries(cv.limitsLabels.like).map(([k, v]) => `${k}=${v}`).join('、'))}）／ ${esc(cv.refillNote || '')}`;
     $('cfg-evidence').checked = !!state.flags.requireReactionEvidence;
     $('cfg-stop-unknown').checked = !!state.flags.stopOnUnknown;
     $('cfg-real').checked = !!state.flags.enableRealActions;
@@ -153,7 +156,7 @@
     if (!cur && r.lastRun) txt += `　前回: ${r.lastRun.runId} 停止理由=${r.lastRun.stopReason}`;
     $('run-status').textContent = txt;
     const s = r.summary || (r.lastRun && r.lastRun.summary);
-    $('run-summary').innerHTML = s ? stat('予定件数', s.planned ?? '指定なし') + stat('候補', s.considered) + stat('処理', s.processed) + stat('成功', s.succeeded) + stat('既スキ', s.alreadyLiked) + stat('結果不明', s.unknown) + stat('送信前失敗', s.failedBeforeSend) + stat('見送り', s.skipped) + stat('外部制限', s.blocked) + stat('ドライラン対象', s.dryRunWouldLike) + stat('未達', s.shortfall ?? '-') + stat('停止理由', s.stopReason ?? '-') : '';
+    $('run-summary').innerHTML = s ? stat('予定件数', s.planned ?? '指定なし') + stat('候補', s.considered) + stat('処理', s.processed) + stat('成功', s.succeeded) + stat('既スキ', s.alreadyDone) + stat('結果不明', s.unknown) + stat('送信前失敗', s.failedBeforeSend) + stat('見送り', s.skipped) + stat('外部制限', s.blocked) + stat('ドライラン対象', s.dryRunWouldAct) + stat('未達', s.shortfall ?? '-') + stat('停止理由', s.stopReason ?? '-') : '';
   }
   $('run-start').onclick = async () => {
     const dryRun = $('run-dry').checked;

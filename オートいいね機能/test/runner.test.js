@@ -32,11 +32,11 @@ test('7.6/E 初期状態では実アクションOFF。ドライランは候補�
   assert.equal(real.code, 'real_actions_disabled');
   const dry = await runAll(h, { accountId: 'karasu', mode: 'follower', dryRun: true });
   assert.equal(dry.started, true);
-  assert.ok(dry.last.summary.dryRunWouldLike > 0);
+  assert.ok(dry.last.summary.dryRunWouldAct > 0);
   assert.equal(h.adapter.likeCalls.length, 0, '実スキは送られない');
   assert.equal(h.ledger.listTargets({ state: 'succeeded' }).length, 0);
-  assert.equal(h.ledger.listTargets({ accountId: 'karasu', state: 'candidate' }).length, dry.last.summary.dryRunWouldLike + 0, 'ドライラン後も候補のまま');
-  assert.equal(h.limits.status('karasu', h.clock.now()).usedToday, 0, 'ドライランは枠を消費しない');
+  assert.equal(h.ledger.listTargets({ accountId: 'karasu', state: 'candidate' }).length, dry.last.summary.dryRunWouldAct + 0, 'ドライラン後も候補のまま');
+  assert.equal(h.limits.status('karasu', 'like', h.clock.now()).usedToday, 0, 'ドライランは枠を消費しない');
   assert.equal(h.ledger.attemptStats('karasu').attempted, 0);
   assert.ok(h.ledger.attemptStats('karasu').dry_run > 0);
 });
@@ -73,7 +73,7 @@ test('E.8/7.3 対象不足なら件数未達で終了し、代替操作で埋め
   const r = await runAll(h, { accountId: 'karasu', mode: 'follower', dryRun: false, maxCount });
   assert.equal(r.last.summary.shortfall, maxCount - r.last.summary.succeeded, '未達 = 予定 - 成功');
   assert.ok(r.last.summary.shortfall >= 5, '見送りがあれば未達はさらに増え、埋めない');
-  assert.equal(r.last.summary.processed, r.last.summary.succeeded + r.last.summary.skipped + r.last.summary.unknown + r.last.summary.failedBeforeSend + r.last.summary.alreadyLiked);
+  assert.equal(r.last.summary.processed, r.last.summary.succeeded + r.last.summary.skipped + r.last.summary.unknown + r.last.summary.failedBeforeSend + r.last.summary.alreadyDone);
   assert.equal(r.last.stopReason, 'completed');
   assert.equal(h.adapter.likeCalls.length, r.last.summary.succeeded + r.last.summary.unknown);
   // 他アカウントの担当や不採用の人には手を出していない
@@ -133,7 +133,7 @@ test('7.2 結果不明は unknown として残り、自動再送しない。既�
   assert.equal(t.state, 'unknown');
   assert.equal(r.last.stopReason, 'unknown_result');
   assert.equal(h.adapter.likeCalls.filter((c) => c.noteKey === 'ur1').length, 1);
-  assert.equal(h.limits.status(owner, h.clock.now()).usedToday, r.last.summary.succeeded + r.last.summary.unknown, '結果不明でも送信開始時に枠は消費済み');
+  assert.equal(h.limits.status(owner, 'like', h.clock.now()).usedToday, r.last.summary.succeeded + r.last.summary.unknown, '結果不明でも送信開始時に枠は消費済み');
   // もう一度実行しても再送しない
   const r2 = await runAll(h, { accountId: owner, mode: 'follower', dryRun: false });
   assert.equal(h.adapter.likeCalls.filter((c) => c.noteKey === 'ur1').length, 1);
@@ -146,7 +146,7 @@ test('7.2 結果不明は unknown として残り、自動再送しない。既�
   // 状態照合: サイト上は押されていない → candidate に戻る（利用者の明示操作）
   h.adapter.setLikeBehavior('p_unknown_result', 'succeeded');
   const res = await h.runner.resolveUnknownByCheck({ personId: pu.id });
-  assert.equal(res.siteState, 'not_liked');
+  assert.equal(res.siteState, 'not_done');
   assert.equal(res.state, 'candidate');
   // 照合でスキ済みなら succeeded（二重計上しない）
   const pu2 = byUrl(h, 'p_unknown_result');
@@ -187,15 +187,19 @@ test('外部制限（ロック・認証要求）に遭遇したら blocked に�
   const owner = h.ledger.assignedTo(pg.id);
   h.adapter.setLikeBehavior('p_ratio_gt', 'blocked');
   const r = await runAll(h, { accountId: owner, mode: 'follower', dryRun: false });
-  assert.equal(r.last.stopReason, 'external_block');
+  assert.equal(r.last.stopReason, 'blocked_external_limit');
   assert.equal(h.ledger.getTarget(pg.id, OP.LIKE).state, 'blocked');
-  const st = h.limits.status(owner, h.clock.now());
+  const st = h.limits.status(owner, 'like', h.clock.now());
   assert.ok(st.externalBlock);
-  assert.ok(st.internalRemaining > 0);
+  assert.equal(st.externalBlock.kind, 'external_limit');
+  assert.ok(st.credits > 0);
   const again = await runAll(h, { accountId: owner, mode: 'follower', dryRun: true });
   assert.equal(again.started, false);
-  assert.equal(again.code, 'external_block');
-  h.limits.clearExternalBlock(owner, NOW);
+  assert.equal(again.code, 'blocked_external_limit');
+  // 20分の内部回復が進んでも解除されない
+  h.clock.advance(25 * 60e3);
+  assert.equal((await runAll(h, { accountId: owner, mode: 'follower', dryRun: true })).code, 'blocked_external_limit');
+  h.limits.clearExternalBlock(owner);
   assert.equal((await runAll(h, { accountId: owner, mode: 'follower', dryRun: true })).started, true);
 });
 
@@ -240,7 +244,7 @@ test('一時停止・再開・停止。3アカウントの外部操作は順番�
 test('上限に達したら停止理由を残して止まる', async () => {
   const h = await prepared();
   const owner = 'karasu';
-  h.limits.configure(owner, { dailyLimit: 1 }, NOW);
+  h.limits.configure(owner, 'like', { dailyLimit: 1 }, NOW);
   const r = await runAll(h, { accountId: owner, mode: 'follower', dryRun: false });
   if (r.last.summary.considered > 1) {
     assert.equal(r.last.stopReason, 'daily_exhausted');

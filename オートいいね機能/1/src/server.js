@@ -18,6 +18,21 @@ function send(res, status, body, type = 'application/json; charset=utf-8') {
   res.end(data);
 }
 
+/**
+ * 書き込み要求は、同一オリジン（127.0.0.1/localhost の自ポート）からで、画面が付ける専用ヘッダを持つものだけ受け付ける。
+ * 他サイトのページからの単純 POST（CSRF / DNS リバインディング）で実アクション ON や開始がされないようにする。
+ */
+function sameOriginWrite(req) {
+  if (req.headers['x-note-tool'] !== '1') return false;
+  const host = String(req.headers.host || '');
+  if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return false;
+  const origin = req.headers.origin;
+  if (origin) {
+    try { const o = new URL(origin); if (!/^(127\.0\.0\.1|localhost)$/.test(o.hostname) || (o.port || '80') !== (host.split(':')[1] || '80')) return false; } catch (_) { return false; }
+  }
+  return true;
+}
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let buf = '';
@@ -55,8 +70,8 @@ function createServer(app, { log = () => {} } = {}) {
   on('GET', '/api/explain/:personId', async (p) => app.explain(p.personId));
   on('GET', '/api/own-article', async (_p, q) => app.ownArticle(q.get('accountId') || undefined));
   on('POST', '/api/session/verify', async (_p, _q, body) => app.verifySession(body && body.accountId));
-  on('POST', '/api/limits/:accountId', async (p, _q, body) => app.setLimits(p.accountId, body));
   on('POST', '/api/limits/:accountId/clear-block', async (p) => app.clearExternalBlock(p.accountId));
+  on('POST', '/api/limits/:accountId/:opType', async (p, _q, body) => app.setLimits(p.accountId, p.opType, body));
   on('POST', '/api/exclusions', async (_p, _q, body) => app.addExclusion(body));
   on('DELETE', '/api/exclusions/:urlname', async (p) => app.removeExclusion(decodeURIComponent(p.urlname)));
   on('GET', '/api/events', async (_p, q) => app.ledger.listEvents(Number(q.get('limit') || 100)));
@@ -65,6 +80,9 @@ function createServer(app, { log = () => {} } = {}) {
     const url = new URL(req.url, 'http://127.0.0.1');
     try {
       if (url.pathname.startsWith('/api/')) {
+        if (req.method !== 'GET' && !sameOriginWrite(req)) {
+          return send(res, 403, { error: '他オリジンからの書き込みは受け付けない（Origin/Host 不一致または専用ヘッダなし）' });
+        }
         for (const r of routes) {
           if (r.method !== req.method) continue;
           const m = url.pathname.match(r.re);

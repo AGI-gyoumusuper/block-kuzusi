@@ -26,7 +26,8 @@ test('7.6 初期状態: 実アクションOFF・定期実行OFF。既定の起�
   assert.equal(oji.url, null);
   assert.equal(oji.verified, false);
   assert.ok(s.criteria.length > 0);
-  assert.ok(s.accounts.every((a) => a.limits.configured && a.limits.note.includes('教材の参考値')), '上限値に区分が付く');
+  assert.ok(s.accounts.every((a) => a.pools.like.valid && JSON.stringify(a.pools.like.labels).includes('教材の参考値')), 'like 枠の値に区分が付く');
+  assert.ok(s.accounts.every((a) => !a.pools.follow_back.valid && a.pools.follow_back.validity.code === 'limits_unset'), 'follow 枠は未設定で開始不可');
   const r = await app.startRun({ dryRun: false });
   assert.equal(r.started, false);
   assert.equal(r.code, 'real_actions_disabled');
@@ -64,7 +65,7 @@ test('7.4/D モード切替・日付変更で担当・履歴・使用済み枠�
   assert.equal(r.started, true);
   await app.waitRun();
   const before = app.state();
-  const used = before.accounts.find((a) => a.id === 'karasu').limits.usedToday;
+  const used = before.accounts.find((a) => a.id === 'karasu').pools.like.usedToday;
   assert.ok(used >= 1);
   const assigned = app.ledger.assignmentCounts();
   const succeeded = app.ledger.listTargets({ state: 'succeeded' }).length;
@@ -74,7 +75,7 @@ test('7.4/D モード切替・日付変更で担当・履歴・使用済み枠�
   assert.deepEqual(app.ledger.assignmentCounts(), assigned);
   assert.equal(app.ledger.listTargets({ state: 'succeeded' }).length, succeeded);
   assert.equal(after.accounts.find((a) => a.id === 'karasu').attempts.attempted, before.accounts.find((a) => a.id === 'karasu').attempts.attempted);
-  assert.equal(app.limits.usageRows('karasu').length, used, '使用履歴は消えない');
+  assert.equal(app.limits.usageRows('karasu', 'like').length, used, '使用履歴は消えない');
   await app.close();
 });
 
@@ -93,7 +94,7 @@ test('7.4 再起動後に担当・成功履歴・結果不明・残数・回復�
     assignments: app.ledger.assignmentCounts(),
     succeeded: app.ledger.listTargets({ state: 'succeeded' }).map((t) => t.personId),
     unknown: app.ledger.listTargets({ state: 'unknown' }).map((t) => t.personId),
-    remaining: s1.accounts.map((a) => [a.id, a.limits.internalRemaining, a.limits.lastRecoveryAt]),
+    remaining: s1.accounts.map((a) => [a.id, a.pools.like.credits, a.pools.like.lastRefill]),
     mode: s1.mode,
   };
   await app.close();
@@ -102,7 +103,7 @@ test('7.4 再起動後に担当・成功履歴・結果不明・残数・回復�
   assert.deepEqual(app.ledger.assignmentCounts(), snapshot.assignments);
   assert.deepEqual(app.ledger.listTargets({ state: 'succeeded' }).map((t) => t.personId), snapshot.succeeded);
   assert.deepEqual(app.ledger.listTargets({ state: 'unknown' }).map((t) => t.personId), snapshot.unknown);
-  assert.deepEqual(s2.accounts.map((a) => [a.id, a.limits.internalRemaining, a.limits.lastRecoveryAt]), snapshot.remaining);
+  assert.deepEqual(s2.accounts.map((a) => [a.id, a.pools.like.credits, a.pools.like.lastRefill]), snapshot.remaining);
   assert.equal(s2.mode, 'follower');
   assert.equal(s2.flags.enableRealActions, true, '利用者が明示した設定は保持');
   await app.close();

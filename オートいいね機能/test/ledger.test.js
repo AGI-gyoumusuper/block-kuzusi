@@ -128,14 +128,21 @@ test('再起動復旧: sending は unknown に、reserved は candidate に戻�
   ledger.reserve(p1, OP.LIKE, 'karasu', 'r1', T0, 60e3);
   ledger.markSending(p1, OP.LIKE, 'r1', { noteKey: 'n' }, T0);
   ledger.reserve(p2, OP.LIKE, 'karasu', 'r1', T0, 60e3);
-  const r = ledger.recoverOnStartup(plus(1000), []);
-  assert.deepEqual(r, { sendingToUnknown: 1, reservedReleased: 1, runsInterrupted: 1 });
+  // 生存通知が新しい run は触らない（別プロセスで動いている可能性）
+  assert.deepEqual(ledger.recoverOnStartup(plus(1000), []), { sendingToUnknown: 0, reservedReleased: 0, runsInterrupted: 0, lockReleased: false });
+  // 生存通知が古ければ復旧する
+  const r = ledger.recoverOnStartup(plus(1000), [], { staleMs: 500 });
+  assert.deepEqual(r, { sendingToUnknown: 1, reservedReleased: 1, runsInterrupted: 1, lockReleased: false });
   assert.equal(ledger.getTarget(p1, OP.LIKE).state, 'unknown');
   assert.equal(ledger.getTarget(p2, OP.LIKE).state, 'candidate');
   assert.equal(ledger.getRun('r1').state, 'interrupted');
   // 実行中の run を指定すれば触らない
   ledger.reserve(p2, OP.LIKE, 'karasu', 'r2', T0, 60e3);
-  assert.deepEqual(ledger.recoverOnStartup(plus(2000), ['r2']).reservedReleased, 0);
+  assert.deepEqual(ledger.recoverOnStartup(plus(2000), ['r2'], { staleMs: 0 }).reservedReleased, 0);
+  // 消滅したプロセスの実行ロックは解放される
+  ledger.acquireExecutorLock('karasu:dead', T0, 60e3);
+  assert.equal(ledger.recoverOnStartup(plus(3000), ['r2'], { staleMs: 0 }).lockReleased, true);
+  assert.equal(ledger.executorLock(), null);
 });
 
 test('除外リストは urlname または userId で一致する', () => {

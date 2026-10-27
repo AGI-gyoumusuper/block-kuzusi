@@ -20,7 +20,7 @@ const NOW = '2026-10-27T03:00:00.000Z'; // JST 12:00
 function world() { return JSON.parse(fs.readFileSync(path.join(ROOT, 'fixtures', 'mock-world.json'), 'utf8')); }
 
 function testConfig(overrides = {}) {
-  const cfg = loadConfig({ rootDir: ROOT, overrides: { requestIntervalMs: 0, betweenLikesMs: 0, limits: { minIntervalMs: 0, defaults: { dailyLimit: 200, hourlyLimit: 50, capacity: 50, recoveryIntervalMin: 20, recoveryAmount: 10 } }, ...overrides }, env: {} });
+  const cfg = loadConfig({ rootDir: ROOT, overrides: { requestIntervalMs: 0, betweenLikesMs: 0, limits: { minIntervalMs: 0 }, ...overrides }, env: {} });
   return cfg;
 }
 
@@ -31,9 +31,12 @@ function harness({ clockIso = NOW, configOverrides = {}, worldOverride = null, d
   const accounts = config.accounts.map(normalizeAccount);
   const db = openDb(dbFile);
   const ledger = new Ledger(db);
-  const limits = new Limits(db, { tzOffsetMinutes: 540, minIntervalMs: config.limits.minIntervalMs });
+  const limits = new Limits(db, { tzOffsetMinutes: 540, minIntervalMs: config.limits.minIntervalMs, onEvent: (ev, iso) => ledger.logEvent(ev, iso) });
   const nowIso = clock.now().toISOString();
-  for (const a of accounts) limits.configure(a.id, { ...config.limits.defaults, note: 'test' }, nowIso);
+  for (const a of accounts) {
+    limits.configure(a.id, 'like', { ...config.limits.pools.like, labels: config.limits.labels.like, note: 'test' }, nowIso);
+    limits.configure(a.id, 'follow_back', { ...config.limits.pools.follow_back, labels: config.limits.labels.follow_back, note: 'test' }, nowIso);
+  }
   const seeds = new Seeds(ledger);
   const adapter = new MockAdapter(worldOverride || world(), { clock, accounts });
   const runner = new Runner({ ledger, limits, adapter, clock, config, accounts, sleep: async () => {} });
@@ -45,7 +48,7 @@ function tmpDir(prefix = 'note-tool-test-') { return fs.mkdtempSync(path.join(os
 /** App を一時DBで作る */
 function makeApp({ clockIso = NOW, dbPath = ':memory:', overrides = {}, adapter = null, worldOverride = null } = {}) {
   const clock = fixedClock(clockIso);
-  const cfg = { requestIntervalMs: 0, betweenLikesMs: 0, limits: { minIntervalMs: 0, defaults: { dailyLimit: 200, hourlyLimit: 50, capacity: 50, recoveryIntervalMin: 20, recoveryAmount: 10 } }, exportDir: path.join(tmpDir(), 'exports'), ...overrides };
+  const cfg = { requestIntervalMs: 0, betweenLikesMs: 0, limits: { minIntervalMs: 0 }, exportDir: path.join(tmpDir(), 'exports'), ...overrides };
   let ad = adapter;
   if (!ad && worldOverride) {
     const accounts = loadConfig({ rootDir: ROOT, env: {} }).accounts.map(normalizeAccount);

@@ -10,6 +10,7 @@
 
 const { chooseLatestNote, evaluateCandidate, isKnownCount, MODE_LIST_TYPE } = require('./rules');
 const { OP } = require('./ledger');
+const { blockFromError } = require('./limits');
 
 async function sleep(ms) { if (ms > 0) await new Promise((r) => setTimeout(r, ms)); }
 
@@ -18,12 +19,21 @@ async function checkModeAvailability({ adapter, account, mode }) {
   if (mode !== 'suki') return { available: true, code: 'ok', message: 'フォロワー獲得モードは自分の公開記事が0件でも利用できる' };
   let notesRes = null;
   try {
-    notesRes = await adapter.getCreatorNotes(account.urlname, { limit: 50 });
+    notesRes = await adapter.getCreatorNotes(account.urlname, { limit: 50, accountId: account.id });
   } catch (e) {
     return { available: false, code: 'own_notes_unavailable', message: `自分の記事一覧を取得できない: ${e.message}` };
   }
   const count = notesRes && Array.isArray(notesRes.notes) ? notesRes.notes.length : 0;
   if (count === 0) {
+    // 応答形式を解釈できず空になっただけの可能性を、プロフィールの記事数で突き合わせる
+    try {
+      const creator = await adapter.getCreator(account.urlname, { accountId: account.id });
+      if (creator && creator.noteCount != null && creator.noteCount > 0) {
+        return { available: false, code: 'own_notes_unavailable', message: `記事一覧を解釈できない（プロフィール上の記事数 ${creator.noteCount} 件に対し一覧が空）。0件とは確定しない` };
+      }
+    } catch (e) {
+      return { available: false, code: 'own_notes_unavailable', message: `自分の記事数を確認できない: ${e.message}` };
+    }
     return { available: false, code: 'no_own_articles', message: 'スキを集める先がない（自分の公開記事が0件）。記事の新規投稿や固定設定は自動で変更しない' };
   }
   return { available: true, code: 'ok', message: `自分の公開記事 ${count} 件`, ownNotes: notesRes.notes };
@@ -33,7 +43,7 @@ async function checkModeAvailability({ adapter, account, mode }) {
 async function ownArticleInfo({ adapter, account, config }) {
   let notesRes;
   try {
-    notesRes = await adapter.getCreatorNotes(account.urlname, { limit: 50 });
+    notesRes = await adapter.getCreatorNotes(account.urlname, { limit: 50, accountId: account.id });
   } catch (e) {
     return { count: null, error: e.message, pinned: null, suggestion: null };
   }
@@ -41,29 +51,25 @@ async function ownArticleInfo({ adapter, account, config }) {
   const pinned = notes.find((n) => n.isPinned) || null;
   const threshold = config.pinSuggestionLikeThreshold;
   let suggestion = null;
-  if (pinned && threshold != null && pinned.likeCount > threshold) {
+  if (pinned && threshold != null && pinned.likeCount != null && pinned.likeCount > threshold) {
     suggestion = `固定記事「${pinned.title}」のスキが ${pinned.likeCount} 件で ${threshold} を超えています。教材では次の記事を固定することが推奨されています（提案のみ。本ツールは固定設定を変更しません）`;
   }
   return { count: notes.length, pinned, suggestion, latest: chooseLatestNote(notesRes).note || null };
 }
 
 /** 人物のプロフィールと最新記事を取得して台帳へ反映 */
-async function refreshPerson({ adapter, ledger, personId, config, nowIso }) {
+async function refreshPerson({ adapter, ledger, personId, config, nowIso, accountId = null }) {
   const person = ledger.getPerson(personId);
-  const creator = await adapter.getCreator(person.urlname);
-  if (!creator) {
-    ledger.updateProfile(personId, { lastFetchedAt: nowIso, lastFetchError: 'profile_not_found' });
-    return { ok: false, code: 'profile_not_found' };
-  }
-  if (creator.urlname !== person.urlname) {
-    ledger.updateProfile(personId, { lastFetchedAt: nowIso, lastFetchError: 'identity_mismatch' });
-    return { ok: false, code: 'identity_mismatch' };
-  }
-  if (creator.userId && person.userId && String(creator.userId) !== String(person.userId)) {
-    ledger.updateProfile(personId, { lastFetchedAt: nowIso, lastFetchError: 'user_id_mismatch' });
-    return { ok: false, code: 'user_id_mismatch' };
-  }
-  const notesRes = await adapter.getCreatorNotes(person.urlname, { limit: config.candidateNotesLimit });
+  // 取得に失敗・不一致なら、前回の古い値で評価しないように最新記事を「未確定」にする
+  const fail = (code, message) => {
+    ledger.updateProfile(personId, { lastFetchedAt: nowIso, lastFetchError: code, identityConfirmed: false, latestNote: { note: null, code, message } });
+    return { ok: false, code };
+  };
+  const creator = await adapter.getCreator(person.urlname, { accountId });
+  if (!creator) return fail('profile_not_found', 'プロフィールを取得できない');
+  if (creator.urlname !== person.urlname) return fail('identity_mismatch', '取得した本人情報の urlname が一致しない');
+  if (creator.userId && person.userId && String(creator.userId) !== String(person.userId)) return fail('user_id_mismatch', 'userId が一致しない（別人の可能性）');
+  const notesRes = await adapter.getCreatorNotes(person.urlname, { limit: config.candidateNotesLimit, accountId });
   const latest = chooseLatestNote(notesRes);
   const pinned = (notesRes.notes || []).find((n) => n.isPinned) || null;
   ledger.updateProfile(personId, {
@@ -95,7 +101,7 @@ function classify(stats, ev) {
   if (codes.has('counts_unknown') || codes.has('equal') || codes.has('following_lt_follower')) stats.ratioFailed++;
 }
 
-async function collect({ adapter, ledger, seeds, accounts, account, mode, config, clock, log = () => {} }) {
+async function collect({ adapter, ledger, seeds, accounts, account, mode, config, clock, log = () => {}, limits = null }) {
   const now = clock.now();
   const nowIso = now.toISOString();
   const enabledAccounts = accounts.filter((a) => a.enabled !== false);
@@ -114,9 +120,18 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
     reason: !s.urlname ? 'no_url（URL未確認。推測で埋めない）' : !s.verified ? 'unverified（本人確認が未完了）' : 'disabled',
   }));
 
+  // 担当の候補: そのモードを実行できるアカウント（スキ獲得は自分の公開記事が0件のアカウントを除く）
+  const assignable = [];
+  const availability = {};
+  for (const a of enabledAccounts) {
+    const av = mode === 'suki' ? await checkModeAvailability({ adapter, account: a, mode }) : { available: true };
+    availability[a.id] = av;
+    if (av.available) assignable.push(a.id);
+  }
+
   const stats = {
     mode, accountId: account.id, startedAt: nowIso,
-    seedsUsed: usable.length, seedsSkipped: skippedSeeds.length,
+    assignableAccounts: assignable.slice(), seedsUsed: usable.length, seedsSkipped: skippedSeeds.length,
     listedTotal: 0, newPersons: 0, knownPersons: 0, duplicateWithinRun: 0, duplicatesExcluded: 0, newSources: 0, identityChanged: 0,
     profileFetched: 0, profileFetchFailed: 0,
     passed: 0, held: 0, rejected: 0, activityFailed: 0, ratioFailed: 0, ownAccounts: 0, alreadyLiked: 0, resultUnknown: 0, excluded: 0,
@@ -125,12 +140,20 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
   const listed = [];
   const seedReports = [];
   const listType = MODE_LIST_TYPE[mode];
+  // 外部制限・認証切れを検出したら収集を止め、アカウントのブロック状態を立てる（次の人物へ要求を続けない）
+  const stopByBlock = (blk, e) => {
+    if (limits) limits.setExternalBlock(account.id, { ...blk, source: 'collect' }, clock.now().toISOString());
+    ledger.logEvent({ level: 'error', code: `blocked_${blk.kind}`, message: `収集中に外部要因で停止: ${e.message}`, accountId: account.id }, clock.now().toISOString());
+    return { stopped: true, code: `blocked_${blk.kind}`, message: `収集を停止: ${blk.message}`, stats, seedReports, skippedSeeds };
+  };
 
   for (const seed of usable) {
     let creator = null;
     try {
-      creator = await adapter.getCreator(seed.urlname);
+      creator = await adapter.getCreator(seed.urlname, { accountId: account.id });
     } catch (e) {
+      const blk = blockFromError(e);
+      if (blk) return stopByBlock(blk, e);
       seedReports.push({ id: seed.id, url: seed.url, status: 'fetch_failed', message: e.message });
       continue;
     }
@@ -141,9 +164,9 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
     const kind = ledger.hasCollected(mode, seed.url) ? 'update' : 'initial';
     let n = 0;
     if (mode === 'suki') {
-      const notesRes = await adapter.getCreatorNotes(seed.urlname, { limit: config.seedNotesLimit });
+      const notesRes = await adapter.getCreatorNotes(seed.urlname, { limit: config.seedNotesLimit, accountId: account.id });
       for (const note of notesRes.notes) {
-        const likes = await adapter.getNoteLikes(note.key, { limit: config.likesPerNoteLimit });
+        const likes = await adapter.getNoteLikes(note.key, { limit: config.likesPerNoteLimit, accountId: account.id });
         likes.likers.forEach((liker, i) => {
           listed.push({
             person: liker,
@@ -160,7 +183,7 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
         await sleep(config.requestIntervalMs || 0);
       }
     } else {
-      const fol = await adapter.getFollowers(seed.urlname, { limit: config.followersLimit });
+      const fol = await adapter.getFollowers(seed.urlname, { limit: config.followersLimit, accountId: account.id });
       fol.followers.forEach((f, i) => {
         listed.push({
           person: f,
@@ -177,8 +200,10 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
 
   // 統合（一人一件）
   const seen = new Map();
+  const stale = new Set();
   for (const { person, source } of listed) {
     const r = ledger.upsertPerson(person, source, nowIso);
+    for (const id of (r.stalePersonIds || [])) stale.add(id);
     if (seen.has(r.person.id)) { stats.duplicateWithinRun++; continue; }
     seen.set(r.person.id, r);
     if (r.isNew) stats.newPersons++; else stats.knownPersons++;
@@ -191,13 +216,18 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
   const roster = ledger.rosterView();
   for (const personId of seen.keys()) {
     const p0 = ledger.getPerson(personId);
+    // 実行器が処理中（予約中・送信中）の対象は評価・担当を触らない
+    const tl = ledger.getTarget(personId, OP.LIKE);
+    if (tl && (tl.state === 'reserved' || tl.state === 'sending')) continue;
     if (!ownUrlnames.includes(p0.urlname)) {
       try {
-        const r = await refreshPerson({ adapter, ledger, personId, config, nowIso });
+        const r = await refreshPerson({ adapter, ledger, personId, config, nowIso, accountId: account.id });
         if (r.ok) stats.profileFetched++; else stats.profileFetchFailed++;
       } catch (e) {
         stats.profileFetchFailed++;
-        ledger.updateProfile(personId, { lastFetchedAt: nowIso, lastFetchError: e.message });
+        ledger.updateProfile(personId, { lastFetchedAt: nowIso, lastFetchError: e.message, latestNote: { note: null, code: 'fetch_error', message: `取得失敗: ${e.message}` } });
+        const blk = blockFromError(e);
+        if (blk) return stopByBlock(blk, e);
       }
       await sleep(config.requestIntervalMs || 0);
     }
@@ -207,7 +237,7 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
 
     let assignedTo = ledger.assignedTo(personId);
     if (fit.verdict === 'adopt' && !assignedTo) {
-      const r = ledger.assignBalanced(personId, enabledAccounts.map((a) => a.id), { mode, reason: 'collect', at: nowIso }, nowIso);
+      const r = ledger.assignBalanced(personId, assignable, { mode, reason: 'collect', at: nowIso, assignable }, nowIso);
       if (r.created) stats.newlyAssigned++;
       assignedTo = r.accountId;
     }
@@ -221,6 +251,15 @@ async function collect({ adapter, ledger, seeds, accounts, account, mode, config
         stats.executableAllAccounts++;
         if (assignedTo === account.id) stats.executable++;
       }
+    }
+  }
+
+  // urlname が別人に再利用された古い行は、前回の採用のまま残さず再評価（保留になる）
+  for (const personId of stale) {
+    if (seen.has(personId)) continue;
+    const cand = ledger.candidateView(personId);
+    for (const a of enabledAccounts) {
+      ledger.setEvaluation(personId, mode, a.id, evaluateCandidate(cand, { mode, now, config, ownUrlnames, accountId: a.id, roster }), nowIso);
     }
   }
 

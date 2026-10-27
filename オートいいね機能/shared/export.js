@@ -7,6 +7,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { OP } = require('./ledger');
+const { parseDate } = require('./clock');
+
+/** 日時を JST（+09:00）の ISO 表記にする。解釈できない値はそのまま */
+function jst(v) {
+  const d = parseDate(v);
+  if (!d) return v == null ? '' : String(v);
+  const t = new Date(d.getTime() + 9 * 3600e3);
+  return `${t.toISOString().slice(0, 19).replace('T', ' ')}+09:00`;
+}
 
 function csvCell(v) {
   if (v == null) return '';
@@ -46,11 +55,11 @@ function buildRosterRows(ledger, accountsById = {}) {
       followerCount: p.followerCount == null ? (p.countsRaw ? `不明(${p.countsRaw})` : '不明') : p.followerCount,
       latestNoteUrl: latest ? latest.url : '',
       latestNoteKey: latest ? latest.key : '',
-      latestNotePublishedAt: latest ? latest.publishedAt : '',
+      latestNotePublishedAt: latest ? jst(latest.publishedAt) : '',
       latestNoteEvidence: p.latestNote ? (p.latestNote.evidence || p.latestNote.message || p.latestNote.code) : '',
-      reactionAt: reaction ? reaction.reactionAt : '反応日時不明',
+      reactionAt: reaction ? jst(reaction.reactionAt) : '反応日時不明',
       reactionEvidence: reaction ? reaction.reactionEvidence : (sources.find((s) => s.orderEvidence) ? sources.find((s) => s.orderEvidence).orderEvidence : ''),
-      lastFetchedAt: p.lastFetchedAt || '',
+      lastFetchedAt: p.lastFetchedAt ? jst(p.lastFetchedAt) : '',
       assignedAccount: assignment ? (accountsById[assignment.accountId] ? accountsById[assignment.accountId].name : assignment.accountId) : '',
       targetState: target ? target.state : '',
       targetReason: target ? [target.reasonCode, target.reasonText].filter(Boolean).join(': ') : '',
@@ -81,8 +90,8 @@ function buildResultRows(ledger, accountsById = {}) {
       opType: t.opType,
       state: t.state,
       noteUrl: t.noteUrl || '',
-      sendingStartedAt: t.sendingStartedAt || '',
-      finishedAt: t.finishedAt || '',
+      sendingStartedAt: t.sendingStartedAt ? jst(t.sendingStartedAt) : '',
+      finishedAt: t.finishedAt ? jst(t.finishedAt) : '',
       reason: [t.reasonCode, t.reasonText].filter(Boolean).join(': '),
     });
   }
@@ -96,7 +105,7 @@ const RESULT_COLUMNS = [
 
 function exportAll({ ledger, accounts, exportDir, clock }) {
   fs.mkdirSync(exportDir, { recursive: true });
-  const stamp = clock.now().toISOString().replace(/[:.]/g, '-');
+  const stamp = `${jst(clock.now()).slice(0, 19).replace(/[: ]/g, '-')}JST`;
   const accountsById = Object.fromEntries((accounts || []).map((a) => [a.id, a]));
   const roster = buildRosterRows(ledger, accountsById);
   const results = buildResultRows(ledger, accountsById);
@@ -108,8 +117,8 @@ function exportAll({ ledger, accounts, exportDir, clock }) {
   };
   fs.writeFileSync(files.rosterCsv, toCsv(roster, ROSTER_COLUMNS));
   fs.writeFileSync(files.resultsCsv, toCsv(results, RESULT_COLUMNS));
-  fs.writeFileSync(files.json, JSON.stringify({ exportedAt: clock.now().toISOString(), roster, results, outcomes, attempts: ledger.attemptStats() }, null, 2));
+  fs.writeFileSync(files.json, JSON.stringify({ exportedAt: jst(clock.now()), timezone: 'JST(+09:00)', roster, results, outcomes, attempts: ledger.attemptStats() }, null, 2));
   return { files, counts: { roster: roster.length, results: results.length, outcomes: outcomes.length } };
 }
 
-module.exports = { exportAll, buildRosterRows, buildResultRows, toCsv, ROSTER_COLUMNS, RESULT_COLUMNS };
+module.exports = { exportAll, buildRosterRows, buildResultRows, toCsv, jst, ROSTER_COLUMNS, RESULT_COLUMNS };

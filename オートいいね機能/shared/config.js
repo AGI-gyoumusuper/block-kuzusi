@@ -19,7 +19,7 @@ const KIND = Object.freeze({
 const DEFAULT_CONFIG = {
   // --- 安全側の初期状態（完了条件 7.6）---
   enableRealActions: false, // 実アカウントでの送信は利用者が明示的に ON にしたときだけ
-  scheduler: { enabled: false, note: '定期実行は初期OFF。本ツールは定期実行を実装しない（手動開始のみ）' },
+  scheduler: { enabled: false, note: '定期実行は実装しない（手動開始のみ）。この値を true にしても何も起動しない' },
 
   // --- 選定条件 ---
   activityWindowDays: 14,          // 教材に明記（フォロワー獲得）。スキ獲得への適用は利用者の追加要件
@@ -32,7 +32,7 @@ const DEFAULT_CONFIG = {
   seedNotesLimit: 5,
   likesPerNoteLimit: 100,
   followersLimit: 200,
-  candidateNotesLimit: 20,
+  candidateNotesLimit: 60,
   requestIntervalMs: 1500,
 
   // --- 実行 ---
@@ -42,25 +42,26 @@ const DEFAULT_CONFIG = {
   stopOnUnknown: true,             // 結果不明が出たら実行を止める（結果不明は内部残数より優先）
   sequentialAcrossAccounts: true,  // 既定で3アカウントの外部操作は順番に実行
 
-  // --- 実行管理層の初期値（限度の出典を併記）---
+  // --- 実行管理層（アカウント × action種別 の枠）。値の出典を labels に併記 ---
+  // like: 2モード共通の枠。日次200/時間50は教材の参考値（公式の保証値ではない）。容量・初期残数は実装上の初期値
+  // follow_back: 初期状態では日次・時間上限・容量を未設定とし、明示設定されるまで開始不可（フォルダ2要件 §1）
+  // 回復: 「残数0なら20分後に+1」はアプリ内の内部 credits の規則（フォルダ2要件 §2。利用者の追加要件）
   limits: {
     tzOffsetMinutes: 540,
     minIntervalMs: 20000,
-    defaults: {
-      dailyLimit: 200,
-      hourlyLimit: 50,
-      capacity: 50,
-      recoveryIntervalMin: 20,
-      recoveryAmount: 10,
+    pools: {
+      like: { dailyLimit: 200, hourlyLimit: 50, capacity: 50, credits: 50, recoveryIntervalMin: 20, recoveryAmount: 1 },
+      follow_back: { dailyLimit: null, hourlyLimit: null, capacity: null, credits: null, recoveryIntervalMin: 20, recoveryAmount: 1 },
     },
     labels: {
-      dailyLimit: KIND.REFERENCE,
-      hourlyLimit: KIND.REFERENCE,
-      capacity: KIND.DEFAULT,
-      recoveryIntervalMin: KIND.USER,
-      recoveryAmount: KIND.DEFAULT,
+      like: { dailyLimit: KIND.REFERENCE, hourlyLimit: KIND.REFERENCE, capacity: KIND.DEFAULT, credits: KIND.DEFAULT, recoveryIntervalMin: KIND.USER, recoveryAmount: KIND.USER },
+      follow_back: { dailyLimit: '未設定（明示設定まで開始不可）', hourlyLimit: '未設定（明示設定まで開始不可）', capacity: '未設定（明示設定まで開始不可）', credits: '未設定', recoveryIntervalMin: KIND.USER, recoveryAmount: KIND.USER },
     },
+    refillNote: '20分で1件の継続補充は24時間で72件分。毎日200件使える仕組みと同一視しない。日次の切り替わりで満タンに戻さず繰り越す',
   },
+
+  // --- フォルダ2: 任意フォロー返し（初期OFF。ON にするまでは候補の確認だけ）---
+  followBack: { enabled: false },
 
   // --- 保存先 ---
   dbPath: null,       // null なら OS 既定（Windows: 依頼書の指定パス）
@@ -76,6 +77,7 @@ const DEFAULT_CONFIG = {
       note: '/api/v3/notes/{key}',
       noteLikes: '/api/v3/notes/{key}/likes?page={page}',
       followers: '/api/v2/creators/{urlname}/followers?page={page}',
+      following: '/api/v2/creators/{urlname}/followings?page={page}',
       myNotes: '/api/v2/creators/{urlname}/contents?kind=note&page={page}',
     },
     // 一覧の並び順の主張。実応答で確認できるまで 'unknown'。確認後に notesOrderClaim: 'published_desc'、likesOrderClaim: 'latest_first'
@@ -86,6 +88,8 @@ const DEFAULT_CONFIG = {
   browser: {
     articleBodySelector: 'article, .note-common-styles__textnote-body, [class*="textnote-body"]',
     likeButtonSelector: 'button[aria-label*="スキ"], button[data-testid*="like"], button:has-text("スキ")',
+    followButtonSelector: 'button:has-text("フォロー"), button[aria-label*="フォロー"]',
+    followingButtonText: 'フォロー中', // 正規表現の文字列。config.json で上書き可
     likeConfirmTimeoutMs: 8000,
     scrollStepPx: 600,
     scrollPauseMs: 250,

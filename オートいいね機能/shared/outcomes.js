@@ -21,24 +21,25 @@ async function checkOutcomes({ adapter, ledger, account, clock, config }) {
     byUrlname.set(p.urlname, { person: p, target: t });
     if (p.userId) byUserId.set(String(p.userId), { person: p, target: t });
   }
-  const result = { checkedAt: nowIso, succeededTargets: succeeded.length, sukiReturnNew: 0, sukiReturnTotal: 0, followGainedNew: 0, followGainedTotal: 0, notes: [], errors: [] };
+  const result = { checkedAt: nowIso, succeededTargets: succeeded.length, sukiReturnNew: 0, sukiReturnTotal: 0, sukiReturnUnconfirmed: 0, followGainedNew: 0, followGainedTotal: 0, followPreexisting: 0, notes: ['確認できた相手との一致のみ記録。全体のフォロワー数やスキ数の増加を本ツールの効果と断定しない'], errors: [] };
   if (succeeded.length === 0) return result;
 
   // スキ返し
   try {
-    const notesRes = await adapter.getCreatorNotes(account.urlname, { limit: 50 });
+    const notesRes = await adapter.getCreatorNotes(account.urlname, { limit: 50, accountId: account.id });
     for (const note of notesRes.notes || []) {
-      const likes = await adapter.getNoteLikes(note.key, { limit: config.likesPerNoteLimit || 100 });
+      const likes = await adapter.getNoteLikes(note.key, { limit: config.likesPerNoteLimit || 100, accountId: account.id });
       for (const liker of likes.likers) {
         const hit = (liker.userId && byUserId.get(String(liker.userId))) || byUrlname.get(liker.urlname);
         if (!hit) continue;
         const likedAt = liker.likedAt ? parseDate(liker.likedAt) : null;
         const after = hit.target.finishedAt ? parseDate(hit.target.finishedAt) : null;
-        // 反応日時が分かり、こちらの成功より前なら「返し」とは言えないので記録しない
-        if (likedAt && after && likedAt < after) continue;
+        // 反応日時が分からなければ順序を確認できないので「返し」と記録しない（件数だけ別に数える）
+        if (!likedAt || !after) { result.sukiReturnUnconfirmed++; continue; }
+        if (likedAt < after) continue; // こちらの成功より前のスキは返しではない
         const created = ledger.recordOutcome(hit.person.id, account.id, 'suki_return', {
-          noteKey: note.key, noteUrl: note.url, likedAt: liker.likedAt || null, matchedBy: liker.userId ? 'userId' : 'urlname',
-          causality: likedAt ? 'こちらの成功後にスキ日時あり' : 'スキ日時不明（順序は未確認）',
+          noteKey: note.key, noteUrl: note.url, likedAt: liker.likedAt, matchedBy: liker.userId ? 'userId' : 'urlname',
+          causality: 'こちらの成功後にスキ日時あり（因果は断定しない）',
         }, nowIso);
         result.sukiReturnTotal++;
         if (created) result.sukiReturnNew++;
@@ -50,12 +51,16 @@ async function checkOutcomes({ adapter, ledger, account, clock, config }) {
 
   // フォロー増加
   try {
-    const fol = await adapter.getFollowers(account.urlname, { limit: config.followersLimit || 200 });
+    const fol = await adapter.getFollowers(account.urlname, { limit: config.followersLimit || 200, accountId: account.id });
     for (const f of fol.followers) {
       const hit = (f.userId && byUserId.get(String(f.userId))) || byUrlname.get(f.urlname);
       if (!hit) continue;
+      // こちらの操作より前からフォロワー一覧で観測されていた相手は「増加」ではない
+      const before = ledger.sourcesOf(hit.person.id).some((s) => s.listType === 'my_followers' && s.seedUrlname === account.urlname
+        && hit.target.finishedAt && parseDate(s.firstDiscoveredAt) && parseDate(s.firstDiscoveredAt) <= parseDate(hit.target.finishedAt));
+      if (before) { result.followPreexisting++; continue; }
       const created = ledger.recordOutcome(hit.person.id, account.id, 'follow_gained', {
-        observedAt: nowIso, matchedBy: f.userId ? 'userId' : 'urlname', causality: 'フォロー日時は取得できないため、こちらの操作との因果は断定しない',
+        observedAt: nowIso, matchedBy: f.userId ? 'userId' : 'urlname', causality: 'こちらの操作後に初めてフォロワー一覧で観測。フォロー日時は取得できないため因果は断定しない',
       }, nowIso);
       result.followGainedTotal++;
       if (created) result.followGainedNew++;

@@ -7,7 +7,7 @@
 const path = require('node:path');
 const { openDb } = require('../../shared/db');
 const { Ledger, OP, STATES } = require('../../shared/ledger');
-const { Limits } = require('../../shared/limits');
+const { Limits, OP_TYPES } = require('../../shared/limits');
 const { Seeds } = require('../../shared/seeds');
 const { normalizeAccount, verifyAccountSession } = require('../../shared/accounts');
 const { loadConfig, KIND } = require('../../shared/config');
@@ -22,15 +22,19 @@ const { systemClock } = require('../../shared/clock');
 const ROOT_DIR = path.resolve(__dirname, '..', '..');
 
 class App {
-  constructor({ rootDir = ROOT_DIR, adapterKind = 'mock', overrides = {}, clock = systemClock(), dbPath = null, worldFile = null, log = () => {}, adapter = null } = {}) {
+  constructor({ rootDir = ROOT_DIR, adapterKind = 'mock', overrides = {}, clock = systemClock(), dbPath = null, worldFile = null, log = () => {}, adapter = null, recover = true } = {}) {
     this.rootDir = rootDir;
     this.clock = clock;
     this.log = log;
-    this.config = loadConfig({ rootDir, overrides: { ...overrides, dbPath: dbPath || overrides.dbPath } });
+    this.recover = recover;
+    // モックは実運用の共有DBを汚さないよう、明示指定が無ければ別ファイルを使う
+    const effectiveKind = adapter ? adapter.name : adapterKind;
+    const mockDb = effectiveKind === 'mock' && !dbPath && !overrides.dbPath ? path.join(rootDir, 'data', 'mock-state.sqlite3') : null;
+    this.config = loadConfig({ rootDir, overrides: { ...overrides, dbPath: dbPath || overrides.dbPath || mockDb } });
     this.accounts = this.config.accounts.map(normalizeAccount);
     this.db = openDb(this.config.dbPath);
     this.ledger = new Ledger(this.db);
-    this.limits = new Limits(this.db, { tzOffsetMinutes: this.config.limits.tzOffsetMinutes, minIntervalMs: this.config.limits.minIntervalMs });
+    this.limits = new Limits(this.db, { tzOffsetMinutes: this.config.limits.tzOffsetMinutes, minIntervalMs: this.config.limits.minIntervalMs, onEvent: (ev, nowIso) => this.ledger.logEvent(ev, nowIso) });
     this.seeds = new Seeds(this.ledger);
     this.adapterKind = adapter ? adapter.name : adapterKind;
     this.adapter = adapter || createAdapter({ kind: adapterKind, config: this.config, accounts: this.accounts, clock, log, worldFile });
@@ -43,14 +47,17 @@ class App {
   _startup() {
     const nowIso = this._nowIso();
     // 再起動復旧: 実行中の run は無いので、sending → unknown、reserved → candidate
-    const recovered = this.ledger.recoverOnStartup(nowIso, []);
-    // 実行管理層の初期値（既に設定済みなら触らない）
-    const d = this.config.limits.defaults;
-    const labels = this.config.limits.labels;
-    const note = Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join('; ');
+    // 復旧は実行器を持つプロセスだけが行う。生存通知のある他プロセスの run には触らない
+    const recovered = this.recover ? this.ledger.recoverOnStartup(nowIso, [], { staleMs: this.config.executorLockTtlMs }) : { sendingToUnknown: 0, reservedReleased: 0, runsInterrupted: 0, skipped: true };
+    // 実行管理層の初期値（アカウント × action種別。既に設定済みなら触らない。follow_back は未設定のまま）
     const limitsInitialized = [];
     for (const a of this.accounts) {
-      if (this.limits.ensureConfigured(a.id, { ...d, note }, nowIso)) limitsInitialized.push(a.id);
+      for (const op of OP_TYPES) {
+        const pool = this.config.limits.pools[op] || {};
+        const labels = this.config.limits.labels[op] || {};
+        const note = Object.entries(labels).map(([k, v]) => `${k}: ${v}`).join('; ');
+        if (this.limits.ensureConfigured(a.id, op, { ...pool, labels, note }, nowIso)) limitsInitialized.push(`${a.id}/${op}`);
+      }
     }
     // 設定の永続値（初期OFF）
     if (this.ledger.getSetting('enableRealActions') === null) this.ledger.setSetting('enableRealActions', !!this.config.enableRealActions);
@@ -131,7 +138,7 @@ class App {
   async collect({ mode, accountId } = {}) {
     const account = accountId ? this.accounts.find((a) => a.id === accountId) : this.account;
     const m = mode || this.mode;
-    return collect({ adapter: this.adapter, ledger: this.ledger, seeds: this.seeds, accounts: this.accounts, account, mode: m, config: this.config, clock: this.clock, log: this.log });
+    return collect({ adapter: this.adapter, ledger: this.ledger, seeds: this.seeds, accounts: this.accounts, account, mode: m, config: this.config, clock: this.clock, log: this.log, limits: this.limits });
   }
 
   plan({ mode, accountId } = {}) {
@@ -184,17 +191,21 @@ class App {
     return verifyAccountSession(this.adapter, account);
   }
 
-  setLimits(accountId, values) {
+  setLimits(accountId, opType, values) {
     const nowIso = this._nowIso();
-    const r = this.limits.configure(accountId, { ...values, note: `利用者が画面から設定 ${nowIso}` }, nowIso);
-    this.ledger.logEvent({ level: 'info', code: 'limits_change', message: `上限変更 ${accountId} ${JSON.stringify(values)}`, accountId }, nowIso);
+    const num = (v) => (v === undefined ? undefined : (v === null || v === '' ? null : Number(v)));
+    const patch = { dailyLimit: num(values.dailyLimit), hourlyLimit: num(values.hourlyLimit), capacity: num(values.capacity), credits: num(values.credits), recoveryIntervalMin: num(values.recoveryIntervalMin), recoveryAmount: num(values.recoveryAmount) };
+    const labels = { ...(this.limits.status(accountId, opType, this.clock.now()).labels || {}) };
+    for (const k of Object.keys(patch)) if (patch[k] !== undefined) labels[k] = `利用者が画面から設定（${nowIso}）`;
+    const r = this.limits.configure(accountId, opType, { ...patch, labels, note: `利用者が画面から設定 ${nowIso}` }, nowIso);
+    this.ledger.logEvent({ level: 'info', code: 'limits_change', message: `上限変更 ${accountId}/${opType} ${JSON.stringify(patch)}`, accountId }, nowIso);
     return r;
   }
 
   clearExternalBlock(accountId) {
-    this.limits.clearExternalBlock(accountId, this._nowIso());
-    this.ledger.logEvent({ level: 'info', code: 'external_block_cleared', message: '外部制限の解除を利用者が確認', accountId }, this._nowIso());
-    return this.limits.status(accountId, this.clock.now());
+    this.limits.clearExternalBlock(accountId);
+    this.ledger.logEvent({ level: 'info', code: 'external_block_cleared', message: '外部制限・認証切れの解除を利用者が確認', accountId }, this._nowIso());
+    return this.limits.status(accountId, OP.LIKE, this.clock.now());
   }
 
   addExclusion({ urlname, userId, reason }) { this.ledger.addExclusion({ urlname, userId, reason }, this._nowIso()); return this.ledger.listExclusions(); }
@@ -221,8 +232,9 @@ class App {
       id: a.id, name: a.name, url: a.url, urlname: a.urlname, cdpPort: a.cdpPort, chromeProfileDir: a.chromeProfileDir, enabled: a.enabled,
       assigned: assignmentCounts[a.id] || 0,
       targets: Object.fromEntries(STATES.map((s) => [s, byState[s].filter((t) => t.accountId === a.id).length])),
-      limits: this.limits.status(a.id, now),
-      attempts: this.ledger.attemptStats(a.id),
+      pools: { like: this.limits.status(a.id, OP.LIKE, now), follow_back: this.limits.status(a.id, OP.FOLLOW_BACK, now) },
+      block: this.limits.externalBlock(a.id),
+      attempts: this.ledger.attemptStats(a.id, OP.LIKE),
       outcomes: { sukiReturn: this.ledger.listOutcomes(a.id).filter((o) => o.kind === 'suki_return').length, followGained: this.ledger.listOutcomes(a.id).filter((o) => o.kind === 'follow_gained').length },
     }));
     return {
@@ -234,7 +246,7 @@ class App {
       mode: this.mode,
       flags: {
         enableRealActions: this.config.enableRealActions,
-        schedulerEnabled: !!(this.config.scheduler && this.config.scheduler.enabled),
+        schedulerEnabled: false, // 定期実行は実装しない（設定値に関わらず何も起動しない）
         schedulerNote: this.config.scheduler ? this.config.scheduler.note : '',
         requireReactionEvidence: this.config.requireReactionEvidence,
         stopOnUnknown: this.config.stopOnUnknown !== false,
@@ -250,7 +262,8 @@ class App {
         betweenLikesMs: { value: this.config.betweenLikesMs, kind: this.config.kinds.betweenLikesMs },
         stopOnUnknown: { value: this.config.stopOnUnknown !== false, kind: this.config.kinds.stopOnUnknown },
         limitsLabels: this.config.limits.labels,
-        limitsDefaults: this.config.limits.defaults,
+        limitsPools: this.config.limits.pools,
+        refillNote: this.config.limits.refillNote,
       },
       accounts: perAccount,
       seeds: this.seeds.list(),
@@ -263,7 +276,7 @@ class App {
       recentCollections: this.ledger.listCollections(5),
       events: this.ledger.listEvents(30),
       exclusions: this.ledger.listExclusions(),
-      attempts: this.ledger.attemptStats(),
+      attempts: this.ledger.attemptStats(null, OP.LIKE),
       startup: this.startup,
       kinds: KIND,
     };

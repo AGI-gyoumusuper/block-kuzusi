@@ -30,7 +30,8 @@ function usage() {
   node src/cli.js export
   node src/cli.js verify-session [--account=...]
   node src/cli.js outcomes [--account=...]
-  node src/cli.js probe <currentUser|creator|creatorNotes|note|noteLikes|followers> [urlname=..] [key=..] [page=1]  （--adapter=note のみ）
+  node src/cli.js probe <currentUser|creator|creatorNotes|note|noteLikes|followers|following> [urlname=..] [key=..] [page=1]  （--adapter=note のみ。HTTP ステータス・Content-Type・生ボディ先頭・JSON を表示）
+  node src/cli.js probe-page <記事またはプロフィールのURL> [--account=..]   （本文セレクタ・スキ/フォローボタンの状態・ロック検出を表示。押さない）
 `);
 }
 
@@ -39,7 +40,8 @@ async function main() {
   const cmd = args._[0] || 'serve';
   if (cmd === 'help' || args.help) { usage(); return; }
   const adapterKind = args.adapter || 'mock';
-  const app = new App({ rootDir: ROOT_DIR, adapterKind, dbPath: args.db || null, worldFile: args.world || null, log: (m) => console.log(m) });
+  const readOnly = ['status', 'plan', 'export', 'verify-session', 'probe', 'probe-page', 'outcomes'].includes(cmd);
+  const app = new App({ rootDir: ROOT_DIR, adapterKind, dbPath: args.db || null, worldFile: args.world || null, log: (m) => console.log(m), recover: !readOnly });
   const account = args.account ? app.accounts.find((a) => a.id === args.account) : app.account;
   if (args.account && !account) throw new Error(`不明なアカウント: ${args.account}`);
   const mode = args.mode || app.mode;
@@ -57,7 +59,7 @@ async function main() {
       }
       case 'status': {
         const s = app.state();
-        console.log(JSON.stringify({ adapter: s.adapter.name, mode: s.mode, selectedAccountId: s.selectedAccountId, flags: s.flags, counts: s.counts, accounts: s.accounts.map((a) => ({ id: a.id, assigned: a.assigned, targets: a.targets, limits: { internalRemaining: a.limits.internalRemaining, usedToday: a.limits.usedToday, usedLastHour: a.limits.usedLastHour, externalBlock: a.limits.externalBlock } })) }, null, 2));
+        console.log(JSON.stringify({ adapter: s.adapter.name, mode: s.mode, selectedAccountId: s.selectedAccountId, flags: s.flags, counts: s.counts, accounts: s.accounts.map((a) => ({ id: a.id, assigned: a.assigned, targets: a.targets, like: { credits: a.pools.like.credits, effective: a.pools.like.effective, usedToday: a.pools.like.usedToday, usedLastHour: a.pools.like.usedLastHour, nextRefillAt: a.pools.like.nextRefillAt }, block: a.block })) }, null, 2));
         break;
       }
       case 'collect': {
@@ -93,8 +95,15 @@ async function main() {
         const name = args._[1];
         const vars = {};
         for (const kv of args._.slice(2)) { const [k, v] = kv.split('='); vars[k] = v; }
-        const raw = await app.adapter.probe(name, vars, { accountId: account.id });
+        const raw = await app.adapter.probeRaw(name, vars, { accountId: account.id });
         console.log(JSON.stringify(raw, null, 2));
+        break;
+      }
+      case 'probe-page': {
+        if (adapterKind !== 'note') throw new Error('probe-page は --adapter=note でのみ使えます');
+        const url = args._[1];
+        if (!url) throw new Error('URL を指定してください');
+        console.log(JSON.stringify(await app.adapter.probePage(url, { accountId: account.id }), null, 2));
         break;
       }
       default:

@@ -164,8 +164,8 @@ function evaluateCandidate(candidate, ctx) {
   if (likeState === 'liked') reject('already_liked', 'スキ実施済み');
   else if (likeState === 'unknown') reject('result_unknown', '送信結果が不明のため再実行しない（状態照合で確定するまで）');
   else if (likeState === 'sending' || likeState === 'reserved') reject('in_progress', '他の実行器が処理中');
-  else if (likeState === 'blocked') hold('blocked', '外部制限に遭遇した対象。解除確認まで保留');
-  else if (likeState === 'failed') hold('last_attempt_failed', '前回の実行が送信前に失敗。再収集で条件を確認するまで保留');
+  // blocked（外部制限に遭遇した対象）はアカウント側のブロック状態で実行が止まる。解除後の再収集で候補に戻せるよう、ここでは保留にしない
+  else if (likeState === 'failed') info('last_attempt_failed', '前回の実行は送信前に失敗（記録あり）。条件を満たせば再び候補になる');
   const assigned = roster ? roster.assignedTo(candidate) : null;
   checks.assignedTo = assigned;
   if (assigned && accountId && assigned !== accountId) reject('assigned_other', `他アカウント（${assigned}）が担当`);
@@ -210,7 +210,69 @@ function evaluateCandidate(candidate, ctx) {
   return { verdict, reasons, checks };
 }
 
+/**
+ * フォロー返しの採否（フォルダ2要件 §1）。実行直前に全条件を満たすこと。
+ * ctx: { now, config, ownUrlnames, accountId, roster, relationship }
+ *   relationship: { targetFollowsMe: true|false|null, iFollowTarget: true|false|null, evidence, checkedAt }  （現在の関係。過去の通知で推定しない）
+ *   roster: { isExcluded(c), followState(c), assignedTo(c) }
+ * like を先にしたことだけを理由に follow を排除しない（同 owner なら like と follow は別 action として各1回）。
+ */
+function evaluateFollowBack(candidate, ctx) {
+  const { now, config = {}, ownUrlnames = [], accountId, roster, relationship } = ctx;
+  const reasons = [];
+  let verdict = 'adopt';
+  const hold = (code, message) => { reasons.push({ level: 'hold', code, message }); if (verdict !== 'reject') verdict = 'hold'; };
+  const reject = (code, message) => { reasons.push({ level: 'reject', code, message }); verdict = 'reject'; };
+  const info = (code, message) => { reasons.push({ level: 'info', code, message }); };
+  const checks = { relationship: relationship || null };
+
+  if (ownUrlnames.includes(candidate.urlname)) reject('own_account', '対象アカウント自身');
+  if (roster && roster.isExcluded(candidate)) reject('excluded', '除外リスト');
+  if (!candidate.userId) hold('user_id_unknown', '安定した userId が未取得のため本人識別が確定しない');
+
+  const followState = roster && roster.followState ? roster.followState(candidate) : 'none';
+  checks.followState = followState;
+  if (followState === 'followed') reject('already_followed', 'フォロー返し実施済み');
+  else if (followState === 'unknown') reject('result_unknown', '送信結果が不明のため再実行しない（状態照合で確定するまで）');
+  else if (followState === 'sending' || followState === 'reserved') reject('in_progress', '他の実行器が処理中');
+  // blocked はアカウント側のブロック状態で実行が止まる。解除後の再収集で候補に戻せるよう、ここでは保留にしない
+  else if (followState === 'failed') info('last_attempt_failed', '前回の実行は送信前に失敗（記録あり）。条件を満たせば再び候補になる');
+
+  const likeState = roster && roster.likeState ? roster.likeState(candidate) : 'none';
+  checks.likeState = likeState;
+  if (likeState === 'liked') info('liked_before', 'スキ実施済みだが、follow は別 action として判定する');
+
+  // 現在の関係（通知ではなく現在の一覧・状態で確認）
+  if (!relationship) hold('relationship_unverified', '現在のフォロー関係を確認できない');
+  else {
+    if (relationship.targetFollowsMe === true) info('follows_me', `相手が現在こちらをフォローしている（${relationship.evidence || '確認方法不明'}）`);
+    else if (relationship.targetFollowsMe === false) reject('not_following_me', '相手は現在こちらをフォローしていない');
+    else hold('follows_me_unverified', '相手がこちらをフォローしているか確認できない');
+    if (relationship.iFollowTarget === false) info('not_following_yet', 'こちらはまだ相手をフォローしていない');
+    else if (relationship.iFollowTarget === true) reject('already_following', 'こちらは既に相手をフォローしている');
+    else hold('my_follow_unverified', 'こちらが相手をフォローしているか確認できない');
+  }
+
+  // owner（担当）。既存 owner が別アカウントなら競合扱い。自動移管しない
+  const assigned = roster ? roster.assignedTo(candidate) : null;
+  checks.assignedTo = assigned;
+  if (assigned && accountId && assigned !== accountId) reject('owner_conflict', `担当（owner）は ${assigned}。相手がこのアカウントをフォローしていても返さない（owner の自動移管は禁止）`);
+
+  // 最新記事（公開日時で確定）と活動条件（14日: 利用者追加の共通活動条件）
+  const latest = candidate.latestNote;
+  checks.latestNote = latest ? { code: latest.code, key: latest.note ? latest.note.key : null } : null;
+  if (!latest) hold('latest_not_fetched', '最新記事が未取得');
+  else if (!latest.note) (latest.code === 'no_notes' ? reject : hold)(latest.code, latest.message);
+  const windowDays = config.activityWindowDays || DEFAULT_ACTIVITY_WINDOW_DAYS;
+  const act = checkActivity(latest && latest.note ? latest.note.publishedAt : null, now, windowDays);
+  checks.activity = act;
+  if (!act.ok && !(latest && !latest.note)) (act.hold ? hold : reject)(act.code, `${act.message}【利用者追加の共通活動条件】`);
+
+  return { verdict, reasons, checks };
+}
+
 module.exports = {
+  evaluateFollowBack,
   MODES,
   LIST_TYPES,
   MODE_LIST_TYPE,

@@ -2,14 +2,14 @@
   "name": "note-suki-tool",
   "version": "0.1.0",
   "private": true,
-  "description": "note スキ獲得・フォロワー獲得 支援ツール（フォルダ1）",
+  "description": "note スキ獲得・フォロワー獲得（フォルダ1）＋ 任意フォロー返し・内部credits回復（フォルダ2）",
   "main": "src/app.js",
   "scripts": {
-    "start": "node src/cli.js serve",
-    "serve:mock": "node src/cli.js serve --adapter=mock --dry-run",
+    "start": "node --disable-warning=ExperimentalWarning 1/src/cli.js serve",
+    "start:2": "node --disable-warning=ExperimentalWarning 2/完成品2/src/cli2.js serve",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
-    "test:unit": "node --disable-warning=ExperimentalWarning --test test/rules.test.js test/ledger.test.js test/limits.test.js test/collect.test.js test/runner.test.js test/app.test.js",
-    "test:e2e": "node --disable-warning=ExperimentalWarning --test test/ui.e2e.test.js"
+    "test:unit": "node --disable-warning=ExperimentalWarning --test test/rules.test.js test/ledger.test.js test/limits.test.js test/collect.test.js test/runner.test.js test/app.test.js test/f2-followback.test.js",
+    "test:e2e": "node --disable-warning=ExperimentalWarning --test test/ui.e2e.test.js test/f2-ui.e2e.test.js"
   },
   "engines": {
     "node": ">=20"

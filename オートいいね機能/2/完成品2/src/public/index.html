@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>オートいいね機能 2 — 任意フォロー返し・内部credits</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>オートいいね機能 2 — 任意フォロー返し・内部credits回復</h1>
+  <span class="flag" id="f-adapter">接続: -</span>
+  <span class="flag" id="f-fb">フォロー返し: -</span>
+  <span class="flag" id="f-real">実アクション: -</span>
+  <span class="flag" id="f-sched">定期実行: -</span>
+  <span class="flag" id="f-lock">実行ロック: -</span>
+  <span class="muted" id="f-now" style="font-size:12px"></span>
+</header>
+<main>
+  <section>
+    <h2>対象3アカウント・action 種別ごとの残数 <small>内部残数・日次残数・時間残数・有効残数・次の回復予定・停止理由</small></h2>
+    <div class="cards" id="accounts"></div>
+    <div class="note" id="refill-note"></div>
+  </section>
+  <section>
+    <h2>設定 <small>初期OFF。ON にするまでは候補の確認だけ。follow の上限は like から流用せず、明示設定まで開始不可</small></h2>
+    <div class="row"><label><input type="checkbox" id="cfg-fb"> <b>フォロー返しを有効にする</b></label></div>
+    <div class="row"><label><input type="checkbox" id="cfg-real"> 実アクションを有効にする（初期OFF。ON にしても「ドライラン」を外して開始しない限り送信しない）</label></div>
+    <div class="row"><label><input type="checkbox" id="cfg-stop-unknown"> 結果不明が出たら実行を止める（既定ON）</label></div>
+    <ul class="criteria" id="criteria"></ul>
+  </section>
+  <section>
+    <h2>候補収集 <small>操作アカウントの「現在の」フォロワー一覧から。過去の通知で推定しない</small></h2>
+    <div class="row"><button id="collect" class="primary">このアカウントのフォロワーから候補を収集</button><span id="collect-msg" class="muted"></span></div>
+    <div class="stats" id="collect-stats"></div>
+  </section>
+  <section>
+    <h2>実行予定 <small>この owner で採用済みの候補</small></h2>
+    <div class="scroll"><table id="plan"><thead><tr><th>#</th><th>対象</th><th>userId</th><th>最新記事公開日時</th><th>関係（確認方法）</th><th>理由</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>実行 <small>送信前に予約・owner・履歴・全残数を再確認。結果不明は保持し再送しない</small></h2>
+    <div class="row">
+      <label><input type="checkbox" id="run-dry" checked> ドライラン（実フォローを送らない）</label>
+      <label>件数（任意） <input type="number" id="run-max" style="width:80px" min="1"></label>
+      <button id="run-start" class="primary">開始</button><button id="run-pause">一時停止</button><button id="run-resume">再開</button><button id="run-stop" class="danger">停止</button>
+    </div>
+    <div id="run-status" class="note"></div>
+    <div class="stats" id="run-summary"></div>
+  </section>
+  <section>
+    <h2>結果不明の対象 <small>照合で解決するまで追加操作を止める</small></h2>
+    <div class="scroll"><table id="unknown"><thead><tr><th>対象</th><th>owner</th><th>理由</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section>
+    <h2>候補一覧 <small>なぜ選ばれたか／選ばれなかったか</small> <button id="export">CSV/JSON に出力</button><span id="export-msg" class="muted"></span></h2>
+    <div class="scroll" style="max-height:480px"><table id="preview"><thead><tr><th>対象</th><th>userId</th><th>フォロワー元</th><th>関係</th><th>最新記事</th><th>owner</th><th>like</th><th>follow</th><th>採否</th><th></th></tr></thead><tbody></tbody></table></div>
+  </section>
+  <section><h2>イベント</h2><div class="log" id="events"></div></section>
+</main>
+<dialog id="dlg"><div class="row" style="justify-content:space-between"><b id="dlg-title"></b><button id="dlg-close">閉じる</button></div><pre id="dlg-body"></pre></dialog>
+<script src="/app.js"></script>
+</body>
+</html>

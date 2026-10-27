@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS attempts (
   started_at TEXT NOT NULL,
   finished_at TEXT,
   result TEXT,
+  consumed INTEGER NOT NULL DEFAULT 0,
   detail_json TEXT
 );
 
@@ -126,7 +127,8 @@ CREATE TABLE IF NOT EXISTS runs (
   finished_at TEXT,
   state TEXT NOT NULL,
   stop_reason TEXT,
-  summary_json TEXT
+  summary_json TEXT,
+  heartbeat_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS collections (
@@ -155,18 +157,30 @@ CREATE TABLE IF NOT EXISTS seeds (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS limit_accounts (
-  account_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS limit_pools (
+  account_id TEXT NOT NULL,
+  op_type TEXT NOT NULL,
   daily_limit INTEGER,
   hourly_limit INTEGER,
   capacity INTEGER,
-  internal_remaining INTEGER,
+  credits INTEGER,
   recovery_interval_min INTEGER,
   recovery_amount INTEGER,
-  last_recovery_at TEXT,
-  external_block_json TEXT,
+  last_refill TEXT,
+  empty_since TEXT,
+  labels_json TEXT,
   note TEXT NOT NULL DEFAULT '',
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(account_id, op_type)
+);
+
+CREATE TABLE IF NOT EXISTS account_blocks (
+  account_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  code TEXT,
+  message TEXT,
+  source TEXT,
+  at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS usage (
@@ -234,9 +248,20 @@ function openDb(file) {
   return db;
 }
 
-/** 書き込みトランザクション（BEGIN IMMEDIATE で他プロセスの書き込みと直列化） */
+const txDepth = new WeakMap();
+
+/**
+ * 書き込みトランザクション（BEGIN IMMEDIATE で他プロセスの書き込みと直列化）。
+ * 入れ子で呼ばれた場合は外側のトランザクションに参加する（残数・時刻・予約の更新を一つにまとめるため）。
+ */
 function transaction(db, fn) {
+  const depth = txDepth.get(db) || 0;
+  if (depth > 0) {
+    txDepth.set(db, depth + 1);
+    try { return fn(); } finally { txDepth.set(db, depth); }
+  }
   db.exec('BEGIN IMMEDIATE');
+  txDepth.set(db, 1);
   try {
     const r = fn();
     db.exec('COMMIT');
@@ -244,6 +269,8 @@ function transaction(db, fn) {
   } catch (e) {
     try { db.exec('ROLLBACK'); } catch (_) { /* no-op */ }
     throw e;
+  } finally {
+    txDepth.set(db, 0);
   }
 }
 

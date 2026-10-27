@@ -49,8 +49,10 @@ class MockAdapter {
       if (!this.world.currentUsers[a.id]) this.world.currentUsers[a.id] = a.urlname;
     }
     this.likedBy = new Map(); // noteKey -> Set(accountId)
+    this.followedBy = new Map(); // targetUrlname -> Set(accountId)  （本ツールが行ったフォロー）
     this.calls = [];
     this.likeCalls = [];
+    this.followCalls = [];
     this._resolveTimes(clock.now());
   }
 
@@ -105,6 +107,59 @@ class MockAdapter {
     n.likes.unshift({ urlname: likerUrlname, likedAt: likedAt || null });
   }
 
+  /** テスト用: 「こちらが相手をフォロー済み」を世界側で設定（ツール外のフォロー） */
+  setFollowing(accountUrlname, targetUrlname, following = true) {
+    const c = this.world.creators[accountUrlname];
+    c.following = c.following || [];
+    const i = c.following.indexOf(targetUrlname);
+    if (following && i < 0) c.following.push(targetUrlname);
+    if (!following && i >= 0) c.following.splice(i, 1);
+  }
+  /** テスト用: 関係を確認できない相手 */
+  setRelationshipUnknown(targetUrlname, unknown = true) {
+    this.world.relationshipUnknown = this.world.relationshipUnknown || {};
+    this.world.relationshipUnknown[targetUrlname] = unknown;
+  }
+
+  async getFollowing(urlname, { limit = 200 } = {}) {
+    this._rec('getFollowing', { urlname, limit });
+    const c = this._creator(urlname);
+    if (!c) return { following: [], complete: true };
+    const all = (c.following || []).map((u) => ({ urlname: u, userId: this.world.creators[u] && this.world.creators[u].userId != null ? String(this.world.creators[u].userId) : null }));
+    return { following: all.slice(0, limit), complete: all.length <= limit };
+  }
+
+  /** 現在の関係（通知ではなく現在の一覧から）。確認できない場合は null を返す */
+  async getRelationship(targetUrlname, { accountId } = {}) {
+    this._rec('getRelationship', { targetUrlname, accountId });
+    const me = this.world.currentUsers[accountId];
+    if (!me) return { targetFollowsMe: null, iFollowTarget: null, evidence: 'ログイン中ユーザー不明' };
+    if (this.world.relationshipUnknown && this.world.relationshipUnknown[targetUrlname]) {
+      return { targetFollowsMe: null, iFollowTarget: null, evidence: 'mock: 関係を確認できない' };
+    }
+    const myCreator = this.world.creators[me];
+    const targetFollowsMe = (myCreator.followers || []).includes(targetUrlname);
+    const byTool = this.followedBy.get(targetUrlname);
+    const iFollowTarget = (myCreator.following || []).includes(targetUrlname) || !!(byTool && byTool.has(accountId));
+    return { targetFollowsMe, iFollowTarget, evidence: 'mock: 現在のフォロワー一覧／フォロー中一覧' };
+  }
+
+  async follow(targetUrlname, { accountId } = {}) {
+    this._rec('follow', { targetUrlname, accountId });
+    const behavior = this.world.followBehavior && this.world.followBehavior[targetUrlname] || 'succeeded';
+    this.followCalls.push({ targetUrlname, accountId, behavior, at: this.clock.now().toISOString() });
+    if (behavior === 'exception') throw new Error('mock: クリック後にブラウザが終了');
+    if (behavior === 'failed') return { result: 'failed', clicked: false, code: 'button_not_found', message: 'mock: フォローボタンが見つからない', stateAfter: 'not_following' };
+    if (behavior === 'blocked') return { result: 'blocked', clicked: true, code: 'rate_limited', message: 'mock: 429 制限', stateAfter: 'unknown' };
+    if (behavior === 'auth') return { result: 'blocked', clicked: true, code: 'auth_required', message: 'mock: ログイン要求', stateAfter: 'unknown' };
+    if (behavior === 'unknown') return { result: 'unknown', clicked: true, code: 'confirm_timeout', message: 'mock: 押下後の状態確認がタイムアウト', stateAfter: 'unknown' };
+    if (!this.followedBy.has(targetUrlname)) this.followedBy.set(targetUrlname, new Set());
+    this.followedBy.get(targetUrlname).add(accountId);
+    return { result: 'succeeded', clicked: true, code: 'ok', message: 'mock: フォロー中を確認', stateAfter: 'following' };
+  }
+
+  setFollowBehavior(targetUrlname, behavior) { this.world.followBehavior = this.world.followBehavior || {}; this.world.followBehavior[targetUrlname] = behavior; }
+
   // ---- アダプタ契約 ----
   async getCurrentUser({ accountId }) {
     this._rec('getCurrentUser', { accountId });
@@ -114,8 +169,8 @@ class MockAdapter {
     return { urlname, userId: c && c.userId != null ? String(c.userId) : null, displayName: c ? c.displayName : urlname };
   }
 
-  async getCreator(urlname) {
-    this._rec('getCreator', { urlname });
+  async getCreator(urlname, { accountId } = {}) {
+    this._rec('getCreator', { urlname, accountId });
     const c = this._creator(urlname);
     if (!c) return null;
     return {

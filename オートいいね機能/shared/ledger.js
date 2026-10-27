@@ -141,6 +141,7 @@ class Ledger {
     let row = null;
     let isNew = false;
     let identityChanged = false;
+    const stalePersonIds = [];
 
     if (userId) {
       row = this.findByUserId(userId);
@@ -167,6 +168,18 @@ class Ledger {
     }
 
     if (!row) {
+      // 同じ urlname を別の userId が使っている既存行は「本人識別が確定しない」状態にする（urlname の再利用・変更を追跡）
+      if (userId) {
+        for (const old of this.findByUrlname(urlname)) {
+          if (old.userId && old.userId !== userId) {
+            this.q('INSERT INTO identity_history(person_id, urlname, user_id, event, seen_at) VALUES (?,?,?,?,?)')
+              .run(old.id, urlname, old.userId, 'urlname_reassigned', nowIso);
+            this.q('UPDATE persons SET identity_confirmed = 0, latest_note_json = ?, last_fetch_error = ? WHERE id = ?')
+              .run(j({ note: null, code: 'urlname_reassigned', message: 'この urlname が別の userId で観測された。本人識別が確定しない' }), 'urlname_reassigned', old.id);
+            stalePersonIds.push(old.id);
+          }
+        }
+      }
       isNew = true;
       const r = this.q(`INSERT INTO persons(user_id, urlname, display_name, profile_url, identity_confirmed, first_seen_at)
         VALUES (?,?,?,?,?,?)`).run(userId, urlname, person.displayName || '', person.profileUrl || `https://note.com/${urlname}`, b(person.identityConfirmed), nowIso);
@@ -184,7 +197,7 @@ class Ledger {
       }
       row = this.getPerson(row.id);
     }
-    return { person: row, isNew, identityChanged };
+    return { person: row, isNew, identityChanged, stalePersonIds };
   }
 
   /**
@@ -419,19 +432,21 @@ class Ledger {
 
   /**
    * 結果不明の対象を、サイト上の現在状態の照合結果で確定する（利用者の明示操作または実行器の照合のみ）。
-   * siteState: 'liked' → succeeded（再クリックしない） / 'not_liked' → candidate（再試行可能） / 'unknown' → そのまま
+   * siteState: 'done'（スキ済み／フォロー中）→ succeeded（再クリックしない） / 'not_done' → candidate（再試行可能） / 'unknown' → そのまま
    */
   resolveUnknown(personId, opType, siteState, evidence, nowIso) {
+    if (siteState === 'liked') siteState = 'done';
+    if (siteState === 'not_liked') siteState = 'not_done';
     return this.tx(() => {
       const row = this.getTarget(personId, opType);
       if (!row || row.state !== 'unknown') return { ok: false, code: row ? `state_${row.state}` : 'no_target' };
-      if (siteState === 'liked') {
+      if (siteState === 'done') {
         this.q(`UPDATE targets SET state = 'succeeded', reason_code = 'confirmed_by_state_check', reason_text = ?, detail_json = ?, finished_at = ?, updated_at = ?
           WHERE person_id = ? AND op_type = ?`)
-          .run('サイト上の状態照合でスキ済みを確認', j(evidence || null), nowIso, nowIso, personId, opType);
+          .run('サイト上の状態照合で実施済みを確認', j(evidence || null), nowIso, nowIso, personId, opType);
         return { ok: true, state: 'succeeded' };
       }
-      if (siteState === 'not_liked') {
+      if (siteState === 'not_done') {
         this.q(`UPDATE targets SET state = 'candidate', run_id = NULL, reserved_at = NULL, reserve_expires_at = NULL, sending_started_at = NULL,
             finished_at = NULL, reason_code = NULL, reason_text = NULL, detail_json = ?, updated_at = ?
           WHERE person_id = ? AND op_type = ?`)
@@ -440,6 +455,20 @@ class Ledger {
       }
       return { ok: false, code: 'still_unknown' };
     });
+  }
+
+  followState(personId) {
+    const t = this.getTarget(personId, OP.FOLLOW_BACK);
+    if (!t) return 'none';
+    switch (t.state) {
+      case 'succeeded': return 'followed';
+      case 'unknown': return 'unknown';
+      case 'sending': return 'sending';
+      case 'reserved': return 'reserved';
+      case 'failed_before_send': return 'failed';
+      case 'blocked': return 'blocked';
+      default: return 'none';
+    }
   }
 
   likeState(personId) {
@@ -478,10 +507,11 @@ class Ledger {
 
   /**
    * 起動時の復旧。実行中でない run に属する sending は unknown（中断）、reserved は candidate に戻す。
+   * 生存通知（heartbeat）が staleMs 以内の run は他プロセスで動いている可能性があるため触らない。
    */
-  recoverOnStartup(nowIso, activeRunIds = []) {
+  recoverOnStartup(nowIso, activeRunIds = [], { staleMs = 15 * 60 * 1000 } = {}) {
     return this.tx(() => {
-      const active = new Set(activeRunIds);
+      const active = new Set([...activeRunIds, ...this.liveRunIds(nowIso, staleMs)]);
       let sendingToUnknown = 0;
       let reservedReleased = 0;
       let runsInterrupted = 0;
@@ -504,14 +534,21 @@ class Ledger {
         this.q("UPDATE runs SET state = 'interrupted', finished_at = ?, stop_reason = COALESCE(stop_reason, 'process_restart') WHERE id = ?").run(nowIso, run.id);
         runsInterrupted++;
       }
-      return { sendingToUnknown, reservedReleased, runsInterrupted };
+      // 消滅したプロセスが残した実行ロックは解放する（holder は "accountId:runId"）
+      let lockReleased = false;
+      const lock = this.q('SELECT * FROM executor_lock WHERE id = 1').get();
+      if (lock) {
+        const runId = String(lock.holder).split(':').slice(1).join(':');
+        if (!active.has(runId)) { this.q('DELETE FROM executor_lock WHERE id = 1').run(); lockReleased = true; }
+      }
+      return { sendingToUnknown, reservedReleased, runsInterrupted, lockReleased };
     });
   }
 
   // ----------------------------------------------------------------- attempts
-  startAttempt({ personId, opType, accountId, runId, noteKey }, nowIso) {
-    const r = this.q('INSERT INTO attempts(person_id, op_type, account_id, run_id, note_key, started_at) VALUES (?,?,?,?,?,?)')
-      .run(personId, opType, accountId, runId || null, noteKey || null, nowIso);
+  startAttempt({ personId, opType, accountId, runId, noteKey, consumed = false }, nowIso) {
+    const r = this.q('INSERT INTO attempts(person_id, op_type, account_id, run_id, note_key, started_at, consumed) VALUES (?,?,?,?,?,?,?)')
+      .run(personId, opType, accountId, runId || null, noteKey || null, nowIso, consumed ? 1 : 0);
     return Number(r.lastInsertRowid);
   }
 
@@ -519,10 +556,12 @@ class Ledger {
     this.q('UPDATE attempts SET finished_at = ?, result = ?, detail_json = ? WHERE id = ?').run(nowIso, result, j(detail || null), id);
   }
 
-  attemptStats(accountId) {
-    const rows = accountId
-      ? this.q('SELECT result, COUNT(*) AS n FROM attempts WHERE account_id = ? GROUP BY result').all(accountId)
-      : this.q('SELECT result, COUNT(*) AS n FROM attempts GROUP BY result').all();
+  attemptStats(accountId, opType) {
+    const conds = [];
+    const vals = [];
+    if (accountId) { conds.push('account_id = ?'); vals.push(accountId); }
+    if (opType) { conds.push('op_type = ?'); vals.push(opType); }
+    const rows = this.q(`SELECT result, COUNT(*) AS n FROM attempts${conds.length ? ' WHERE ' + conds.join(' AND ') : ''} GROUP BY result`).all(...vals);
     const out = { attempted: 0, succeeded: 0, unknown: 0, failed: 0, dry_run: 0 };
     for (const r of rows) {
       if (r.result === 'dry_run') { out.dry_run += r.n; continue; }
@@ -536,8 +575,19 @@ class Ledger {
 
   // --------------------------------------------------------------------- runs
   createRun({ id, accountId, mode, dryRun }, nowIso) {
-    this.q('INSERT INTO runs(id, account_id, mode, dry_run, started_at, state) VALUES (?,?,?,?,?,?)')
-      .run(id, accountId, mode, b(dryRun), nowIso, 'running');
+    this.q('INSERT INTO runs(id, account_id, mode, dry_run, started_at, state, heartbeat_at) VALUES (?,?,?,?,?,?,?)')
+      .run(id, accountId, mode, b(dryRun), nowIso, 'running', nowIso);
+  }
+
+  /** 実行中の run の生存通知（別プロセスの起動復旧に巻き込まれないため） */
+  heartbeat(runId, nowIso) {
+    this.q("UPDATE runs SET heartbeat_at = ? WHERE id = ? AND state IN ('running','paused')").run(nowIso, runId);
+  }
+
+  /** 生存通知が staleMs 以内の実行中 run（他プロセスで動いている可能性がある） */
+  liveRunIds(nowIso, staleMs) {
+    const threshold = new Date(parseDate(nowIso).getTime() - staleMs).toISOString();
+    return this.q("SELECT id FROM runs WHERE state IN ('running','paused') AND heartbeat_at IS NOT NULL AND heartbeat_at >= ?").all(threshold).map((r) => r.id);
   }
 
   updateRun(id, patch) {
@@ -556,7 +606,7 @@ class Ledger {
 
   getRun(id) {
     const r = this.q('SELECT * FROM runs WHERE id = ?').get(id);
-    return r ? { id: r.id, accountId: r.account_id, mode: r.mode, dryRun: !!r.dry_run, startedAt: r.started_at, finishedAt: r.finished_at, state: r.state, stopReason: r.stop_reason, summary: pj(r.summary_json) } : null;
+    return r ? { id: r.id, accountId: r.account_id, mode: r.mode, dryRun: !!r.dry_run, startedAt: r.started_at, finishedAt: r.finished_at, state: r.state, stopReason: r.stop_reason, summary: pj(r.summary_json), heartbeatAt: r.heartbeat_at } : null;
   }
 
   listRuns(limit = 20) {
@@ -656,6 +706,7 @@ class Ledger {
     return {
       isExcluded: (c) => this.isExcluded(c),
       likeState: (c) => (c && c.id != null ? this.likeState(c.id) : 'none'),
+      followState: (c) => (c && c.id != null ? this.followState(c.id) : 'none'),
       assignedTo: (c) => (c && c.id != null ? this.assignedTo(c.id) : null),
     };
   }
@@ -735,7 +786,7 @@ class Ledger {
       assignment: this.getAssignment(personId),
       targets: { like: this.getTarget(personId, OP.LIKE), follow_back: this.getTarget(personId, OP.FOLLOW_BACK) },
       attempts: this.q('SELECT * FROM attempts WHERE person_id = ? ORDER BY id').all(personId)
-        .map((a) => ({ id: a.id, opType: a.op_type, accountId: a.account_id, runId: a.run_id, noteKey: a.note_key, startedAt: a.started_at, finishedAt: a.finished_at, result: a.result, detail: pj(a.detail_json) })),
+        .map((a) => ({ id: a.id, opType: a.op_type, accountId: a.account_id, runId: a.run_id, noteKey: a.note_key, startedAt: a.started_at, finishedAt: a.finished_at, result: a.result, consumed: !!a.consumed, detail: pj(a.detail_json) })),
       identityHistory: this.identityHistoryOf(personId),
       outcomes: this.q('SELECT * FROM outcomes WHERE person_id = ? ORDER BY id').all(personId)
         .map((r) => ({ accountId: r.account_id, kind: r.kind, evidence: pj(r.evidence_json), observedAt: r.observed_at })),

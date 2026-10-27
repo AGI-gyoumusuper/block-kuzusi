@@ -1,72 +1,430 @@
 {
   "comment": "モック世界。日時は起動時刻からの相対。実在の note ユーザーとは無関係（bold_cobra8451 は依頼書で確認済みとされた著者URLの urlname を、起点登録の動作確認のために同名で置いたもの）",
-  "currentUsers": { "karasu": "_karasu", "koisi": "koisi_", "pengi": "pengi" },
+  "currentUsers": {
+    "karasu": "_karasu",
+    "koisi": "koisi_",
+    "pengi": "pengi"
+  },
   "creators": {
-    "_karasu": { "userId": "u_karasu", "displayName": "からす", "followingCount": 12, "followerCount": 30,
-      "notes": [ { "key": "k1", "title": "からす固定記事", "publishedAtOffsetDays": -20, "isPinned": true, "likeCount": 160, "likes": [] },
-                 { "key": "k2", "title": "からす最新", "publishedAtOffsetDays": -1, "likeCount": 3, "likes": [] } ],
-      "followers": [] },
-    "koisi_": { "userId": "u_koisi", "displayName": "こいし", "followingCount": 8, "followerCount": 15,
-      "notes": [ { "key": "ko1", "title": "こいし記事", "publishedAtOffsetDays": -2, "likeCount": 10, "likes": [] } ], "followers": [] },
-    "pengi": { "userId": "u_pengi", "displayName": "ペンギ", "followingCount": 5, "followerCount": 9, "notes": [], "followers": [] },
-
-    "seed_suki_demo": { "userId": "u_seed_suki", "displayName": "スキして回る発信者（モック）", "followingCount": 500, "followerCount": 800,
+    "_karasu": {
+      "userId": "u_karasu",
+      "displayName": "からす",
+      "followingCount": 12,
+      "followerCount": 30,
+      "notes": [
+        {
+          "key": "k1",
+          "title": "からす固定記事",
+          "publishedAtOffsetDays": -20,
+          "isPinned": true,
+          "likeCount": 160,
+          "likes": []
+        },
+        {
+          "key": "k2",
+          "title": "からす最新",
+          "publishedAtOffsetDays": -1,
+          "likeCount": 3,
+          "likes": []
+        }
+      ],
+      "followers": [
+        "fb_demo_ok",
+        "fb_demo_already",
+        "fb_demo_old",
+        "p_ratio_gt"
+      ],
+      "following": [
+        "fb_demo_already"
+      ]
+    },
+    "koisi_": {
+      "userId": "u_koisi",
+      "displayName": "こいし",
+      "followingCount": 8,
+      "followerCount": 15,
+      "notes": [
+        {
+          "key": "ko1",
+          "title": "こいし記事",
+          "publishedAtOffsetDays": -2,
+          "likeCount": 10,
+          "likes": []
+        }
+      ],
+      "followers": []
+    },
+    "pengi": {
+      "userId": "u_pengi",
+      "displayName": "ペンギ",
+      "followingCount": 5,
+      "followerCount": 9,
+      "notes": [],
+      "followers": []
+    },
+    "seed_suki_demo": {
+      "userId": "u_seed_suki",
+      "displayName": "スキして回る発信者（モック）",
+      "followingCount": 500,
+      "followerCount": 800,
       "notesOrderClaim": "published_desc",
       "notes": [
-        { "key": "ss1", "title": "起点記事1", "publishedAtOffsetDays": -1, "likeCount": 9, "likesOrderClaim": "latest_first",
+        {
+          "key": "ss1",
+          "title": "起点記事1",
+          "publishedAtOffsetDays": -1,
+          "likeCount": 9,
+          "likesOrderClaim": "latest_first",
           "likes": [
-            { "urlname": "p_active_3d", "likedAtOffsetHours": -5 },
-            { "urlname": "p_nolikedat" },
-            { "urlname": "p_boundary_13d23h", "likedAtOffsetHours": -30 },
-            { "urlname": "p_boundary_14d", "likedAtOffsetHours": -40 },
-            { "urlname": "p_15d", "likedAtOffsetHours": -50 },
-            { "urlname": "p_date_unknown", "likedAtOffsetHours": -60 },
-            { "urlname": "p_pinned_old", "likedAtOffsetHours": -70 },
-            { "urlname": "_karasu", "likedAtOffsetHours": -80 },
-            { "urlname": "p_both_modes", "likedAtOffsetHours": -90 }
-          ] },
-        { "key": "ss2", "title": "起点記事2", "publishedAtOffsetDays": -3, "likeCount": 2, "likesOrderClaim": "unknown",
-          "likes": [ { "urlname": "p_active_3d" }, { "urlname": "p_unknown_result" } ] }
-      ], "followers": [] },
-
-    "bold_cobra8451": { "userId": "u_seed_follower", "displayName": "かみなり（モック）", "followingCount": 48, "followerCount": 2300,
-      "notes": [ { "key": "bc1", "title": "起点B記事", "publishedAtOffsetDays": -2, "likeCount": 50, "likes": [] } ],
-      "followers": [ "p_ratio_gt", "p_ratio_eq", "p_ratio_lt", "p_ratio_unknown", "p_both_modes", "p_15d_follower", "koisi_", "p_future", "p_body_not_rendered", "p_unknown_result" ] },
-
-    "p_active_3d": { "userId": "u1", "displayName": "活動中3日", "followingCount": 300, "followerCount": 100, "notesOrderClaim": "published_desc",
-      "notes": [ { "key": "a1", "title": "最新", "publishedAtOffsetDays": -3, "likeCount": 1 }, { "key": "a0", "title": "古い", "publishedAtOffsetDays": -40 } ] },
-    "p_nolikedat": { "userId": "u2", "displayName": "反応日時なし", "followingCount": 200, "followerCount": 50,
-      "notes": [ { "key": "n1", "title": "最新", "publishedAtOffsetDays": -1 } ] },
-    "p_boundary_13d23h": { "userId": "u3", "displayName": "13日23時間", "followingCount": 10, "followerCount": 5,
-      "notes": [ { "key": "b1", "title": "境界内", "publishedAtOffsetDays": -13, "publishedAtOffsetHours": -23 } ] },
-    "p_boundary_14d": { "userId": "u4", "displayName": "14日ちょうど", "followingCount": 10, "followerCount": 5,
-      "notes": [ { "key": "b2", "title": "境界", "publishedAtOffsetDays": -14 } ] },
-    "p_15d": { "userId": "u5", "displayName": "15日前", "followingCount": 10, "followerCount": 5,
-      "notes": [ { "key": "b3", "title": "古い", "publishedAtOffsetDays": -15 } ] },
-    "p_date_unknown": { "userId": "u6", "displayName": "日時不明", "followingCount": 10, "followerCount": 5,
-      "notes": [ { "key": "b4", "title": "日時なし", "publishedAt": null } ] },
-    "p_pinned_old": { "userId": "u7", "displayName": "固定記事が古い", "followingCount": 10, "followerCount": 5, "notesOrderClaim": "published_desc",
-      "notes": [ { "key": "pin_old", "title": "固定（古い）", "publishedAtOffsetDays": -60, "isPinned": true, "updatedAtOffsetDays": -1 },
-                 { "key": "pin_new", "title": "通常投稿（新しい）", "publishedAtOffsetDays": -2 } ] },
-    "p_both_modes": { "userId": "u8", "displayName": "両モードに出る人", "followingCount": 400, "followerCount": 120,
-      "notes": [ { "key": "bm1", "title": "最新", "publishedAtOffsetDays": -4 } ] },
-    "p_unknown_result": { "userId": "u9", "displayName": "結果不明になる人", "followingCount": 90, "followerCount": 40,
-      "notes": [ { "key": "ur1", "title": "最新", "publishedAtOffsetDays": -2 } ] },
-
-    "p_ratio_gt": { "userId": "u10", "displayName": "フォロー>フォロワー", "followingCount": 500, "followerCount": 200,
-      "notes": [ { "key": "g1", "title": "最新", "publishedAtOffsetDays": -5 } ] },
-    "p_ratio_eq": { "userId": "u11", "displayName": "同数", "followingCount": 100, "followerCount": 100,
-      "notes": [ { "key": "e1", "title": "最新", "publishedAtOffsetDays": -1 } ] },
-    "p_ratio_lt": { "userId": "u12", "displayName": "フォロー<フォロワー", "followingCount": 50, "followerCount": 900,
-      "notes": [ { "key": "l1", "title": "最新", "publishedAtOffsetDays": -1 } ] },
-    "p_ratio_unknown": { "userId": "u13", "displayName": "省略表記", "followingCount": null, "followerCount": 120, "countsRaw": "フォロー 1.2万",
-      "notes": [ { "key": "q1", "title": "最新", "publishedAtOffsetDays": -1 } ] },
-    "p_15d_follower": { "userId": "u14", "displayName": "15日前（B）", "followingCount": 300, "followerCount": 10,
-      "notes": [ { "key": "f15", "title": "古い", "publishedAtOffsetDays": -15 } ] },
-    "p_future": { "userId": "u15", "displayName": "未来日時", "followingCount": 300, "followerCount": 10,
-      "notes": [ { "key": "fu1", "title": "未来", "publishedAtOffsetDays": 1 } ] },
-    "p_body_not_rendered": { "userId": "u16", "displayName": "本文が表示されない", "followingCount": 300, "followerCount": 10,
-      "notes": [ { "key": "bn1", "title": "最新", "publishedAtOffsetDays": -1, "bodyRendered": false } ] }
+            {
+              "urlname": "p_active_3d",
+              "likedAtOffsetHours": -5
+            },
+            {
+              "urlname": "p_nolikedat"
+            },
+            {
+              "urlname": "p_boundary_13d23h",
+              "likedAtOffsetHours": -30
+            },
+            {
+              "urlname": "p_boundary_14d",
+              "likedAtOffsetHours": -40
+            },
+            {
+              "urlname": "p_15d",
+              "likedAtOffsetHours": -50
+            },
+            {
+              "urlname": "p_date_unknown",
+              "likedAtOffsetHours": -60
+            },
+            {
+              "urlname": "p_pinned_old",
+              "likedAtOffsetHours": -70
+            },
+            {
+              "urlname": "_karasu",
+              "likedAtOffsetHours": -80
+            },
+            {
+              "urlname": "p_both_modes",
+              "likedAtOffsetHours": -90
+            }
+          ]
+        },
+        {
+          "key": "ss2",
+          "title": "起点記事2",
+          "publishedAtOffsetDays": -3,
+          "likeCount": 2,
+          "likesOrderClaim": "unknown",
+          "likes": [
+            {
+              "urlname": "p_active_3d"
+            },
+            {
+              "urlname": "p_unknown_result"
+            }
+          ]
+        }
+      ],
+      "followers": []
+    },
+    "bold_cobra8451": {
+      "userId": "u_seed_follower",
+      "displayName": "かみなり（モック）",
+      "followingCount": 48,
+      "followerCount": 2300,
+      "notes": [
+        {
+          "key": "bc1",
+          "title": "起点B記事",
+          "publishedAtOffsetDays": -2,
+          "likeCount": 50,
+          "likes": []
+        }
+      ],
+      "followers": [
+        "p_ratio_gt",
+        "p_ratio_eq",
+        "p_ratio_lt",
+        "p_ratio_unknown",
+        "p_both_modes",
+        "p_15d_follower",
+        "koisi_",
+        "p_future",
+        "p_body_not_rendered",
+        "p_unknown_result"
+      ]
+    },
+    "p_active_3d": {
+      "userId": "u1",
+      "displayName": "活動中3日",
+      "followingCount": 300,
+      "followerCount": 100,
+      "notesOrderClaim": "published_desc",
+      "notes": [
+        {
+          "key": "a1",
+          "title": "最新",
+          "publishedAtOffsetDays": -3,
+          "likeCount": 1
+        },
+        {
+          "key": "a0",
+          "title": "古い",
+          "publishedAtOffsetDays": -40
+        }
+      ]
+    },
+    "p_nolikedat": {
+      "userId": "u2",
+      "displayName": "反応日時なし",
+      "followingCount": 200,
+      "followerCount": 50,
+      "notes": [
+        {
+          "key": "n1",
+          "title": "最新",
+          "publishedAtOffsetDays": -1
+        }
+      ]
+    },
+    "p_boundary_13d23h": {
+      "userId": "u3",
+      "displayName": "13日23時間",
+      "followingCount": 10,
+      "followerCount": 5,
+      "notes": [
+        {
+          "key": "b1",
+          "title": "境界内",
+          "publishedAtOffsetDays": -13,
+          "publishedAtOffsetHours": -23
+        }
+      ]
+    },
+    "p_boundary_14d": {
+      "userId": "u4",
+      "displayName": "14日ちょうど",
+      "followingCount": 10,
+      "followerCount": 5,
+      "notes": [
+        {
+          "key": "b2",
+          "title": "境界",
+          "publishedAtOffsetDays": -14
+        }
+      ]
+    },
+    "p_15d": {
+      "userId": "u5",
+      "displayName": "15日前",
+      "followingCount": 10,
+      "followerCount": 5,
+      "notes": [
+        {
+          "key": "b3",
+          "title": "古い",
+          "publishedAtOffsetDays": -15
+        }
+      ]
+    },
+    "p_date_unknown": {
+      "userId": "u6",
+      "displayName": "日時不明",
+      "followingCount": 10,
+      "followerCount": 5,
+      "notes": [
+        {
+          "key": "b4",
+          "title": "日時なし",
+          "publishedAt": null
+        }
+      ]
+    },
+    "p_pinned_old": {
+      "userId": "u7",
+      "displayName": "固定記事が古い",
+      "followingCount": 10,
+      "followerCount": 5,
+      "notesOrderClaim": "published_desc",
+      "notes": [
+        {
+          "key": "pin_old",
+          "title": "固定（古い）",
+          "publishedAtOffsetDays": -60,
+          "isPinned": true,
+          "updatedAtOffsetDays": -1
+        },
+        {
+          "key": "pin_new",
+          "title": "通常投稿（新しい）",
+          "publishedAtOffsetDays": -2
+        }
+      ]
+    },
+    "p_both_modes": {
+      "userId": "u8",
+      "displayName": "両モードに出る人",
+      "followingCount": 400,
+      "followerCount": 120,
+      "notes": [
+        {
+          "key": "bm1",
+          "title": "最新",
+          "publishedAtOffsetDays": -4
+        }
+      ]
+    },
+    "p_unknown_result": {
+      "userId": "u9",
+      "displayName": "結果不明になる人",
+      "followingCount": 90,
+      "followerCount": 40,
+      "notes": [
+        {
+          "key": "ur1",
+          "title": "最新",
+          "publishedAtOffsetDays": -2
+        }
+      ]
+    },
+    "p_ratio_gt": {
+      "userId": "u10",
+      "displayName": "フォロー>フォロワー",
+      "followingCount": 500,
+      "followerCount": 200,
+      "notes": [
+        {
+          "key": "g1",
+          "title": "最新",
+          "publishedAtOffsetDays": -5
+        }
+      ]
+    },
+    "p_ratio_eq": {
+      "userId": "u11",
+      "displayName": "同数",
+      "followingCount": 100,
+      "followerCount": 100,
+      "notes": [
+        {
+          "key": "e1",
+          "title": "最新",
+          "publishedAtOffsetDays": -1
+        }
+      ]
+    },
+    "p_ratio_lt": {
+      "userId": "u12",
+      "displayName": "フォロー<フォロワー",
+      "followingCount": 50,
+      "followerCount": 900,
+      "notes": [
+        {
+          "key": "l1",
+          "title": "最新",
+          "publishedAtOffsetDays": -1
+        }
+      ]
+    },
+    "p_ratio_unknown": {
+      "userId": "u13",
+      "displayName": "省略表記",
+      "followingCount": null,
+      "followerCount": 120,
+      "countsRaw": "フォロー 1.2万",
+      "notes": [
+        {
+          "key": "q1",
+          "title": "最新",
+          "publishedAtOffsetDays": -1
+        }
+      ]
+    },
+    "p_15d_follower": {
+      "userId": "u14",
+      "displayName": "15日前（B）",
+      "followingCount": 300,
+      "followerCount": 10,
+      "notes": [
+        {
+          "key": "f15",
+          "title": "古い",
+          "publishedAtOffsetDays": -15
+        }
+      ]
+    },
+    "p_future": {
+      "userId": "u15",
+      "displayName": "未来日時",
+      "followingCount": 300,
+      "followerCount": 10,
+      "notes": [
+        {
+          "key": "fu1",
+          "title": "未来",
+          "publishedAtOffsetDays": 1
+        }
+      ]
+    },
+    "p_body_not_rendered": {
+      "userId": "u16",
+      "displayName": "本文が表示されない",
+      "followingCount": 300,
+      "followerCount": 10,
+      "notes": [
+        {
+          "key": "bn1",
+          "title": "最新",
+          "publishedAtOffsetDays": -1,
+          "bodyRendered": false
+        }
+      ]
+    },
+    "fb_demo_ok": {
+      "userId": "u_fb1",
+      "displayName": "フォロー返し候補（活動中）",
+      "followingCount": 30,
+      "followerCount": 10,
+      "notes": [
+        {
+          "key": "fb1",
+          "title": "最新",
+          "publishedAtOffsetDays": -2
+        }
+      ]
+    },
+    "fb_demo_already": {
+      "userId": "u_fb2",
+      "displayName": "既にフォロー中",
+      "followingCount": 30,
+      "followerCount": 10,
+      "notes": [
+        {
+          "key": "fb2",
+          "title": "最新",
+          "publishedAtOffsetDays": -1
+        }
+      ]
+    },
+    "fb_demo_old": {
+      "userId": "u_fb3",
+      "displayName": "20日前",
+      "followingCount": 30,
+      "followerCount": 10,
+      "notes": [
+        {
+          "key": "fb3",
+          "title": "古い",
+          "publishedAtOffsetDays": -20
+        }
+      ]
+    }
   },
-  "likeBehavior": { "p_unknown_result": "unknown" }
+  "likeBehavior": {
+    "p_unknown_result": "unknown"
+  }
 }
