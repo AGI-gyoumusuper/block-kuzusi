@@ -193,7 +193,13 @@ class Runner {
         }
         s.processed++;
 
-        const outcome = await this._processReserved({ account, mode, dryRun, runId, personId, ownUrlnames, roster });
+        let outcome;
+        try {
+          outcome = await this._processReserved({ account, mode, dryRun, runId, personId, ownUrlnames, roster });
+        } finally {
+          // 開いた記事ページを必ず閉じる（タブを残さない）
+          if (typeof this.adapter.release === 'function') await this.adapter.release(account.id).catch(() => {});
+        }
         if (outcome.kind === 'blocked') {
           stopReason = 'external_block';
           break;

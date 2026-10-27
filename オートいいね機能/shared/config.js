@@ -78,6 +78,9 @@ const DEFAULT_CONFIG = {
       followers: '/api/v2/creators/{urlname}/followers?page={page}',
       myNotes: '/api/v2/creators/{urlname}/contents?kind=note&page={page}',
     },
+    // 一覧の並び順の主張。実応答で確認できるまで 'unknown'。確認後に notesOrderClaim: 'published_desc'、likesOrderClaim: 'latest_first'
+    notesOrderClaim: 'unknown',
+    likesOrderClaim: 'unknown',
     verified: false,
   },
   browser: {

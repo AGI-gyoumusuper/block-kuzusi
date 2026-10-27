@@ -182,7 +182,9 @@ class NoteBrowserAdapter {
       page++;
       await this._pause();
     }
-    return { notes: notes.slice(0, limit), complete: complete && notes.length <= limit, orderClaim: 'unknown' };
+    // 並び順: 取得元が公開日時降順であることを利用者が実応答で確認したら config.noteApi.notesOrderClaim = 'published_desc' にする。
+    // 未確認のままなら 'unknown' とし、全件取得できない場合は最新記事を確定しない（取得順を最新順と決めつけない）
+    return { notes: notes.slice(0, limit), complete: complete && notes.length <= limit, orderClaim: this.config.noteApi.notesOrderClaim || 'unknown' };
   }
 
   async getNoteLikes(noteKey, { limit = 100 } = {}) {
@@ -211,7 +213,14 @@ class NoteBrowserAdapter {
       page++;
       await this._pause();
     }
-    return { likers: likers.slice(0, limit), complete, orderClaim: 'unknown', orderEvidence: null, reactionTimeEvidence: likers.some((l) => l.likedAt) ? 'note API のスキ作成日時（未検証）' : null };
+    const orderClaim = this.config.noteApi.likesOrderClaim || 'unknown';
+    return {
+      likers: likers.slice(0, limit),
+      complete,
+      orderClaim,
+      orderEvidence: orderClaim === 'latest_first' ? '利用者が実応答で確認したスキ一覧の並び（新しい順）' : null,
+      reactionTimeEvidence: likers.some((l) => l.likedAt) ? 'note API のスキ作成日時（未検証）' : null,
+    };
   }
 
   async getFollowers(urlname, { limit = 200 } = {}) {
@@ -274,7 +283,16 @@ class NoteBrowserAdapter {
     return 'unknown';
   }
 
+  /** 直前に開いた記事ページを閉じる（実行器が各対象の処理後に呼ぶ） */
+  async release(accountId) {
+    const lp = this._lastPage;
+    if (!lp || (accountId && lp.accountId !== accountId)) return;
+    this._lastPage = null;
+    if (lp.page && !lp.page.isClosed()) await lp.page.close().catch(() => {});
+  }
+
   async openAndReadNote(noteUrl, { accountId } = {}) {
+    await this.release(accountId);
     const ctx = await this._context(accountId);
     const page = await ctx.newPage();
     try {
@@ -284,6 +302,7 @@ class NoteBrowserAdapter {
       const body = page.locator(this.config.browser.articleBodySelector).first();
       let bodyRendered = false;
       try { await body.waitFor({ state: 'visible', timeout: 15000 }); bodyRendered = true; } catch (_) { bodyRendered = false; }
+      this._lastPage = { accountId, page, url: noteUrl };
       // 本文を末尾まで表示する（制限回避の効果は仮定しない。教材の手順を再現するだけ）
       let scrolledToEnd = false;
       if (bodyRendered) {
@@ -298,7 +317,6 @@ class NoteBrowserAdapter {
       }
       const m = page.url().match(/note\.com\/([A-Za-z0-9_]+)\/n\/([A-Za-z0-9]+)/);
       const likeState = await this._likeState(page);
-      this._lastPage = { accountId, page, url: noteUrl };
       return { ok: bodyRendered, bodyRendered, scrolledToEnd, likeState, finalUrl: page.url(), noteKey: m ? m[2] : null, authorUrlname: m ? m[1] : null, blocked: null, _page: page };
     } catch (e) {
       await page.close().catch(() => {});

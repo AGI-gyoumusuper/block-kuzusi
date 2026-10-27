@@ -143,6 +143,7 @@ node src\cli.js probe creator urlname=bold_cobra8451 --adapter=note  ← 実 API
 
 - `shared/adapters/note-browser.js` の API 経路（`/api/v2/creators/...` 等）、応答の項目名（`publishAt`、`followingCount`、`isLiked` 等）、日時の書式
 - スキ一覧の反応日時が API から取得できるか（取得できなければ「反応日時不明」として扱う設計）
+- 記事一覧・スキ一覧の並び順（確認できるまで `config.noteApi.notesOrderClaim` / `likesOrderClaim` は `unknown`。未確認のままでは全件取得できない相手の最新記事を確定しない）
 - 記事本文・スキボタンのセレクタ（`config.browser.*`）、押下後の状態確認、ロック・認証要求の表示文言
 - CDP 接続（`chromium.connectOverCDP('http://127.0.0.1:<port>')`）が既存の専用 Chrome で動くこと
 - 上記は `node src\cli.js probe ...` と `verify-session` で実際の応答を確認し、`config.json` の `noteApi.endpoints` / `browser` を調整してから使ってください
