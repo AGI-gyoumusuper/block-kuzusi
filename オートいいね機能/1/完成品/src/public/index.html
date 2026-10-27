@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>オートいいね機能 1 — スキ獲得／フォロワー獲得</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>オートいいね機能 1 — 対象者選定・スキ実行</h1>
+  <span class="flag" id="f-adapter">接続: -</span>
+  <span class="flag" id="f-real">実アクション: -</span>
+  <span class="flag" id="f-sched">定期実行: -</span>
+  <span class="flag" id="f-lock">実行ロック: -</span>
+  <span class="muted" id="f-now" style="font-size:12px"></span>
+</header>
+<main>
+  <section id="sec-accounts">
+    <h2>対象3アカウント <small>フォルダ名で推測せず、接続先のログイン中 note ID を照合する</small></h2>
+    <div class="cards" id="accounts"></div>
+  </section>
+
+  <section id="sec-mode">
+    <h2>モード <small>切替で担当・スキ履歴・使用済み枠はリセットしない</small></h2>
+    <div class="row">
+      <label><input type="radio" name="mode" value="suki"> A. スキ獲得（起点の記事にスキした人 → 最新記事へスキ）</label>
+      <label><input type="radio" name="mode" value="follower"> B. フォロワー獲得（起点のフォロワーでフォロー数＞フォロワー数 → 最新記事へスキ。フォローはしない）</label>
+    </div>
+    <div id="own-article" class="note">自分の記事情報を取得中...</div>
+  </section>
+
+  <section id="sec-seeds">
+    <h2>起点の管理 <small>実URLと本人同一性を確認してから使う。表示名だけで採用しない</small></h2>
+    <div class="scroll"><table id="seeds"><thead><tr><th>モード</th><th>表示名</th><th>URL</th><th>確認</th><th>本人情報・数値（起点形状の出典）</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+    <div class="row">
+      <select id="seed-mode"><option value="suki">スキ獲得</option><option value="follower">フォロワー獲得</option></select>
+      <input type="text" id="seed-url" placeholder="https://note.com/xxxx（未確認なら空欄可）" size="40">
+      <input type="text" id="seed-name" placeholder="表示名（任意）">
+      <button id="seed-add">起点を追加</button>
+    </div>
+  </section>
+
+  <section id="sec-criteria">
+    <h2>選定条件と出典 <small>教材に明記／教材の例示／利用者の追加要件／実装上の初期値 を区別</small></h2>
+    <div class="grid2">
+      <ul class="criteria" id="criteria"></ul>
+      <div>
+        <div class="row"><label><input type="checkbox" id="cfg-evidence"> 「最近の反応の証拠必須」を有効（スキ獲得。証拠不明の候補を保留）</label></div>
+        <div class="row">起点の数値範囲（フォロワー獲得・教材の例示。未設定なら判定しない）: フォロー数上限 <input type="number" id="cfg-following-max" style="width:90px"> フォロワー数下限 <input type="number" id="cfg-follower-min" style="width:90px"> <button id="cfg-save-range">保存</button></div>
+        <div class="row"><label><input type="checkbox" id="cfg-stop-unknown"> 結果不明が出たら実行を止める（既定ON）</label></div>
+        <div class="row"><label><input type="checkbox" id="cfg-real"> <b>実アクションを有効にする</b>（初期OFF。ON にしても「ドライラン」を外して開始しない限り送信しない）</label></div>
+        <div id="cfg-values" class="muted" style="font-size:12px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sec-collect">
+    <h2>候補収集 <small>初回収集と更新収集を区別。既存候補の出所が増えても別人として追加しない</small></h2>
+    <div class="row"><button id="collect" class="primary">このアカウント・このモードで候補を収集</button><span id="collect-msg" class="muted"></span></div>
+    <div class="stats" id="collect-stats"></div>
+    <div id="collect-seeds" class="muted" style="font-size:12px"></div>
+  </section>
+
+  <section id="sec-plan">
+    <h2>実行予定 <small>この担当・このモードで採用済みの候補（最近の反応者を優先）</small></h2>
+    <div class="scroll"><table id="plan"><thead><tr><th>#</th><th>対象</th><th>最新記事</th><th>公開日時</th><th>反応日時</th><th>理由</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section id="sec-run">
+    <h2>実行 <small>開始は利用者の明示操作のみ。実行直前に最新記事・本人・既スキ・担当予約を再確認する</small></h2>
+    <div class="row">
+      <label><input type="checkbox" id="run-dry" checked> ドライラン（実スキを送らない）</label>
+      <label>件数（任意） <input type="number" id="run-max" style="width:80px" min="1"></label>
+      <button id="run-start" class="primary">開始</button>
+      <button id="run-pause">一時停止</button>
+      <button id="run-resume">再開</button>
+      <button id="run-stop" class="danger">停止</button>
+    </div>
+    <div id="run-status" class="note"></div>
+    <div class="stats" id="run-summary"></div>
+  </section>
+
+  <section id="sec-unknown">
+    <h2>結果不明の対象 <small>自動再送しない。サイト上の現在状態を照合してから確定する（再クリックは解除になる可能性）</small></h2>
+    <div class="scroll"><table id="unknown"><thead><tr><th>対象</th><th>担当</th><th>記事</th><th>理由</th><th>操作</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section id="sec-preview">
+    <h2>名簿プレビュー <small>対象ごとに「なぜ選ばれたか」を確認できる</small>
+      <button id="export">CSV/JSON に出力</button><span id="export-msg" class="muted"></span>
+      <label style="margin-left:auto"><input type="checkbox" id="preview-adopt-only"> 採用のみ表示</label>
+    </h2>
+    <div class="scroll" style="max-height:480px"><table id="preview"><thead><tr>
+      <th>対象ID/URL</th><th>起点URL</th><th>起点記事URL</th><th>発見した一覧</th><th>モード適合</th><th>フォロー/フォロワー</th><th>最新記事（公開日時）</th><th>反応日時と根拠</th><th>最終取得</th><th>担当</th><th>状態</th><th>採否（このモード・この担当）</th><th></th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section id="sec-events">
+    <h2>イベント <small>待機・停止理由、収集・実行の記録</small></h2>
+    <div class="log" id="events"></div>
+  </section>
+</main>
+<dialog id="dlg"><div class="row" style="justify-content:space-between"><b id="dlg-title"></b><button id="dlg-close">閉じる</button></div><pre id="dlg-body"></pre></dialog>
+<script src="/app.js"></script>
+</body>
+</html>

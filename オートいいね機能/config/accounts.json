@@ -1,0 +1,8 @@
+{
+  "comment": "依頼書の表のとおり。物理フォルダ名と実アカウント名が一部入れ替わっているため、フォルダ名で推測せず、接続先 port → ログイン中の note ID を実際に照合する",
+  "accounts": [
+    { "id": "karasu", "name": "からす", "url": "https://note.com/_karasu", "chromeProfileDir": "C:\\Users\\taker\\Documents\\Codex\\chrome-profiles\\note-info\\karasu", "cdpPort": 9271 },
+    { "id": "koisi",  "name": "こいし", "url": "https://note.com/koisi_",  "chromeProfileDir": "C:\\Users\\taker\\Documents\\Codex\\chrome-profiles\\note-info\\pengi",  "cdpPort": 9273 },
+    { "id": "pengi",  "name": "ペンギ", "url": "https://note.com/pengi",   "chromeProfileDir": "C:\\Users\\taker\\Documents\\Codex\\chrome-profiles\\note-info\\koisi",  "cdpPort": 9272 }
+  ]
+}
