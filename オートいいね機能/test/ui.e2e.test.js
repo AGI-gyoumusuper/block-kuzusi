@@ -6,7 +6,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { makeApp } = require('./helpers');
-const { createServer, listen } = require('../1/src/server');
+const { createServer, listen } = require('../1/完成品/src/server');
 
 let playwright = null;
 try { playwright = require('playwright'); } catch (_) { playwright = null; }

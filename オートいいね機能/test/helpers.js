@@ -12,7 +12,7 @@ const { fixedClock } = require('../shared/clock');
 const { loadConfig } = require('../shared/config');
 const { normalizeAccount } = require('../shared/accounts');
 const { Runner } = require('../shared/runner');
-const { App } = require('../1/src/app');
+const { App } = require('../1/完成品/src/app');
 
 const ROOT = path.resolve(__dirname, '..');
 const NOW = '2026-10-27T03:00:00.000Z'; // JST 12:00

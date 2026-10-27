@@ -5,21 +5,21 @@
  */
 
 const path = require('node:path');
-const { openDb } = require('../../shared/db');
-const { Ledger, OP, STATES } = require('../../shared/ledger');
-const { Limits, OP_TYPES } = require('../../shared/limits');
-const { Seeds } = require('../../shared/seeds');
-const { normalizeAccount, verifyAccountSession } = require('../../shared/accounts');
-const { loadConfig, KIND } = require('../../shared/config');
-const { criteriaFor, CRITERIA } = require('../../shared/criteria');
-const { createAdapter } = require('../../shared/adapters');
-const { collect, ownArticleInfo, checkModeAvailability } = require('../../shared/collect');
-const { Runner, planTargets } = require('../../shared/runner');
-const { checkOutcomes } = require('../../shared/outcomes');
-const { exportAll, buildRosterRows } = require('../../shared/export');
-const { systemClock } = require('../../shared/clock');
+const { openDb } = require('../../../shared/db');
+const { Ledger, OP, STATES } = require('../../../shared/ledger');
+const { Limits, OP_TYPES } = require('../../../shared/limits');
+const { Seeds } = require('../../../shared/seeds');
+const { normalizeAccount, verifyAccountSession } = require('../../../shared/accounts');
+const { loadConfig, KIND } = require('../../../shared/config');
+const { criteriaFor, CRITERIA } = require('../../../shared/criteria');
+const { createAdapter } = require('../../../shared/adapters');
+const { collect, ownArticleInfo, checkModeAvailability } = require('../../../shared/collect');
+const { Runner, planTargets } = require('../../../shared/runner');
+const { checkOutcomes } = require('../../../shared/outcomes');
+const { exportAll, buildRosterRows } = require('../../../shared/export');
+const { systemClock } = require('../../../shared/clock');
 
-const ROOT_DIR = path.resolve(__dirname, '..', '..');
+const ROOT_DIR = path.resolve(__dirname, '..', '..', '..');
 
 class App {
   constructor({ rootDir = ROOT_DIR, adapterKind = 'mock', overrides = {}, clock = systemClock(), dbPath = null, worldFile = null, log = () => {}, adapter = null, recover = true } = {}) {

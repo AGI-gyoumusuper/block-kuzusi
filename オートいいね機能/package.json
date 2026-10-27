@@ -5,7 +5,7 @@
   "description": "note スキ獲得・フォロワー獲得（フォルダ1）＋ 任意フォロー返し・内部credits回復（フォルダ2）",
   "main": "src/app.js",
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning 1/src/cli.js serve",
+    "start": "node --disable-warning=ExperimentalWarning 1/完成品/src/cli.js serve",
     "start:2": "node --disable-warning=ExperimentalWarning 2/完成品2/src/cli2.js serve",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
     "test:unit": "node --disable-warning=ExperimentalWarning --test test/rules.test.js test/ledger.test.js test/limits.test.js test/collect.test.js test/runner.test.js test/app.test.js test/f2-followback.test.js",

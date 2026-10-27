@@ -9,13 +9,20 @@ note の対象者選定と「最新記事へのスキ」を、かみなり教材
 
 ```
 オートいいね機能/
-  1/                 フォルダ1: スキ獲得モード・フォロワー獲得モード（起動入口 start.cmd / start.sh）
-    src/app.js       アプリ層（共通層を束ねる）
-    src/server.js    操作画面のローカルサーバー（127.0.0.1 のみ）
-    src/cli.js       コマンド入口（serve / status / collect / plan / run / export / verify-session / outcomes / probe）
-    src/public/      操作画面
-  2/                 フォルダ2: 任意フォロー返し・内部credits回復（起動入口 完成品2/start.cmd）。要件書 2/Fable開発要件.md
-    完成品2/src/app2.js, server2.js, cli2.js, public/
+  Fableへの開発依頼.md    親文書（共通仕様）
+  README.md / 引継ぎ.md    本書 / ローカル Claude 向けの開発引継ぎ
+  1/
+    Fable開発要件.md        フォルダ1要件
+    完成品/                 フォルダ1の成果物（起動入口 start.cmd / start.sh）
+      src/app.js            アプリ層（共通層を束ねる）
+      src/server.js         操作画面のローカルサーバー（127.0.0.1 のみ、他オリジンからの書き込み拒否）
+      src/cli.js            serve / status / collect / plan / run / export / verify-session / outcomes / probe / probe-page
+      src/public/           操作画面
+  2/
+    Fable開発要件.md        フォルダ2要件
+    README.md               フォルダ2の説明（要件との対応）
+    完成品2/                フォルダ2の成果物（起動入口 start.cmd / start.sh）
+      src/app2.js, server2.js, cli2.js, public/
   shared/            共通層（1 と 2 が同じ台帳・実行管理を使う）
     db.js            SQLite（node:sqlite）。単一の共有DB、WAL、BEGIN IMMEDIATE
     ledger.js        共有台帳: 人物（userId 優先）・出所・評価・担当・状態機械・試行・成果・実行ロック
@@ -49,13 +56,16 @@ note の対象者選定と「最新記事へのスキ」を、かみなり教材
 ## 3. 起動
 
 ```
-cd オートいいね機能\1
-start.cmd                       ← モック + ドライラン（既定）。http://127.0.0.1:3747/
+cd オートいいね機能\1\完成品
+start.cmd                       ← モック + ドライラン（既定）。http://127.0.0.1:3747/　モックは別DB（data/mock-state.sqlite3）を使い共有DBを汚さない
 start.cmd --adapter=note        ← 実 note（既存 Chrome に接続）。それでも実アクションは OFF のまま
 start.cmd --port=3800 --db=D:\path\state.sqlite3
+
+cd オートいいね機能\2\完成品2
+start.cmd                       ← フォルダ2（フォロー返し OFF、実アクション OFF）。http://127.0.0.1:3748/
 ```
 
-コマンド例（`1` フォルダで）:
+コマンド例（`1\完成品` フォルダで）:
 
 ```
 node src\cli.js status
@@ -65,7 +75,8 @@ node src\cli.js run  --account=karasu --mode=follower            ← ドライ�
 node src\cli.js run  --account=karasu --mode=follower --real     ← 実送信（config の enableRealActions が true のときだけ開始）
 node src\cli.js export
 node src\cli.js verify-session --adapter=note --account=karasu   ← 接続先のログインIDを照合
-node src\cli.js probe creator urlname=bold_cobra8451 --adapter=note  ← 実 API の生応答を確認
+node src\cli.js probe creator urlname=bold_cobra8451 --adapter=note  ← 実 API の生応答（HTTP ステータス・Content-Type・生ボディ・JSON）を確認
+node src\cli.js probe-page https://note.com/xxxx/n/yyyy --adapter=note ← 記事ページの本文セレクタ・スキ/フォローボタンの状態・ロック検出を確認（押さない）
 ```
 
 テスト: `npm test`（`node --test test/*.test.js`）。
@@ -130,7 +141,7 @@ node src\cli.js probe creator urlname=bold_cobra8451 --adapter=note  ← 実 API
 ### 8.1 実装した機能
 フォルダ1要件 A〜E、フォルダ2要件 §1〜§5、親文書 §1〜§7。
 
-### 8.2 モックで確認したこと（`npm test`、73件すべて合格。実スキ・実フォローは一切送らない）
+### 8.2 モックで確認したこと（`npm test`、86件すべて合格。実スキ・実フォローは一切送らない）
 
 | 依頼書の項目 | テスト |
 |---|---|
@@ -157,6 +168,7 @@ node src\cli.js probe creator urlname=bold_cobra8451 --adapter=note  ← 実 API
 | フォルダ2 §5 送信後タイムアウトを結果不明として保持し再起動後も再送しない | f2-followback: §5（6, 7） |
 | フォルダ2 §5 外部制限・認証切れの分離、20分経過で再開しない | limits: §4、f2-followback: §5（8） |
 | フォルダ2 画面 | f2-ui.e2e（Playwright） |
+| レビュー指摘の修正（別プロセス起動の保護、一時停止中のロック更新、取得順の非優先、担当の実行可否、失敗対象の再候補化、更新時の鮮度、記事0件の判定、ユーザー作成日時の非転用、他オリジン拒否、成果の基準、JST 出力、定期実行の常時 OFF） | review-fixes（12件） |
 
 ### 8.3 実 note では未確認のこと（この環境から note.com へ接続できないため）
 

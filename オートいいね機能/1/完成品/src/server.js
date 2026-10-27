@@ -47,7 +47,7 @@ function createServer(app, { log = () => {} } = {}) {
   const on = (method, pattern, handler) => routes.push({ method, re: new RegExp(`^${pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)')}$`), handler });
 
   on('GET', '/api/state', async () => app.state());
-  on('GET', '/api/criteria', async (_p, q) => require('../../shared/criteria').criteriaFor(q.get('mode') || app.mode));
+  on('GET', '/api/criteria', async (_p, q) => require('../../../shared/criteria').criteriaFor(q.get('mode') || app.mode));
   on('POST', '/api/account', async (_p, _q, body) => ({ selectedAccountId: app.selectAccount(body.id) }));
   on('POST', '/api/mode', async (_p, _q, body) => ({ mode: app.setMode(body.mode) }));
   on('POST', '/api/config', async (_p, _q, body) => app.setConfig(body));

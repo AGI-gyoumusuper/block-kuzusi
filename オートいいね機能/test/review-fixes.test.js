@@ -12,8 +12,8 @@ const { OP, Ledger } = require('../shared/ledger');
 const { openDb } = require('../shared/db');
 const { NoteBrowserAdapter } = require('../shared/adapters/note-browser');
 const { jst } = require('../shared/export');
-const { createServer, listen } = require('../1/src/server');
-const { App } = require('../1/src/app');
+const { createServer, listen } = require('../1/完成品/src/server');
+const { App } = require('../1/完成品/src/app');
 const { fixedClock } = require('../shared/clock');
 
 const ROOT = path.resolve(__dirname, '..');
